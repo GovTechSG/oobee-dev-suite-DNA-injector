@@ -1,0 +1,95 @@
+{
+  "name": "oobee-genome",
+  "version": "2.0.0",
+  "type": "module",
+  "main": "index.cjs",
+  "module": "index.js",
+  "description": "Automatic source location tracking for DOM elements across multiple build tools (Vite, Webpack, esbuild, Rollup, Angular, Next.js)",
+  "keywords": [
+    "vite",
+    "webpack",
+    "esbuild",
+    "rollup",
+    "angular",
+    "nextjs",
+    "react",
+    "vue",
+    "source-map",
+    "debugging",
+    "accessibility",
+    "wcag",
+    "dna-injection"
+  ],
+  "author": "Oobee Team",
+  "license": "ISC",
+  "homepage": "https://github.com/oobee/oobee-ai-dev-suit-dynamic-linter/tree/main/oobee-genome",
+  "bugs": {
+    "url": "https://github.com/oobee/oobee-ai-dev-suit-dynamic-linter/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/oobee/oobee-ai-dev-suit-dynamic-linter.git"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "pack:check": "npm pack --dry-run",
+    "pack:tarball": "npm pack",
+    "publish:s3": "node s3-publish.js"
+  },
+  "files": [
+    "index.js",
+    "index.cjs",
+    "core/",
+    "adapters/",
+    "README.md",
+    "*.cjs"
+  ],
+  "exports": {
+    ".": {
+      "import": "./index.js",
+      "require": "./index.cjs",
+      "default": "./index.js"
+    },
+    "./adapters/webpack": {
+      "import": "./adapters/webpack.js",
+      "require": "./adapters/webpack.cjs",
+      "default": "./adapters/webpack.cjs"
+    },
+    "./adapters/next": {
+      "import": "./adapters/next.js",
+      "require": "./adapters/next.cjs",
+      "default": "./adapters/next.cjs"
+    },
+    "./adapters/esbuild": {
+      "import": "./adapters/esbuild.js",
+      "require": "./adapters/esbuild.cjs"
+    },
+    "./adapters/rollup": {
+      "import": "./adapters/rollup.js",
+      "require": "./adapters/rollup.cjs"
+    },
+    "./adapters/angular": {
+      "import": "./adapters/angular.js",
+      "require": "./adapters/angular.cjs"
+    },
+    "./adapters/vite": {
+      "import": "./adapters/vite.js",
+      "require": "./adapters/vite.cjs"
+    },
+    "./core/transformer": {
+      "import": "./core/transformer.js",
+      "require": "./core/transformer.cjs"
+    },
+    "./core/options": {
+      "import": "./core/options.js",
+      "require": "./core/options.cjs"
+    },
+    "./core/utils": {
+      "import": "./core/utils.js",
+      "require": "./core/utils.cjs"
+    }
+  },
+  "publishConfig": {
+    "registry": "https://oobee-genome-208297280843.d.codeartifact.ap-southeast-1.amazonaws.com/npm/oobee-genome-repo/"
+  }
+}
