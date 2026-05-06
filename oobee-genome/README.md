@@ -28,20 +28,9 @@ Automatic source location tracking for DOM elements across multiple build tools.
 
 Run this once per machine/session (replace placeholders):
 
-```bash
-export AWS_PROFILE=<your-aws-profile>
-export AWS_REGION=ap-southeast-1
-export CODEARTIFACT_DOMAIN=oobee-genome
-export CODEARTIFACT_OWNER=208297280843
-export CODEARTIFACT_REPO=oobee-genome-repo
+Steps to login into AWS codeartifact are here
 
-aws codeartifact login \
-	--tool npm \
-	--domain "$CODEARTIFACT_DOMAIN" \
-	--domain-owner "$CODEARTIFACT_OWNER" \
-	--repository "$CODEARTIFACT_REPO" \
-	--region "$AWS_REGION"
-```
+https://govtech.enterprise.slack.com/docs/TCH9UHD61/F0B21BP9W6N
 
 Install package:
 
