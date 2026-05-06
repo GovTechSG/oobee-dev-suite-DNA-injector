@@ -7,6 +7,7 @@ Automatic source location tracking for DOM elements across multiple build tools.
 ## Quick Start
 
 **Are you:**
+
 - **Internal team member?** → Follow "Install For Internal Teams" below
 - **External user (when released)?** → Follow "Install For External Users" below
 - **Ready to set up your framework?** → Jump to "Choose Your Framework / Build Tool"
@@ -92,6 +93,7 @@ Recommended naming:
 Select your framework below. Click to expand and follow the step-by-step setup.
 
 **Available frameworks:**
+
 - Vite (React, Vue, Angular)
 - Webpack (React, Vue, Angular)
 - Next.js
@@ -104,6 +106,7 @@ Select your framework below. Click to expand and follow the step-by-step setup.
 **Setup in 3 steps:**
 
 **Step 1: Install**
+
 ```bash
 npm install oobee-genome
 ```
@@ -113,13 +116,11 @@ npm install oobee-genome
 Copy your existing `vite.config.ts` (or `.js`) to `vite.config.oobee.ts`, then add the oobee plugin:
 
 ```ts
-import { defineConfig } from 'vite';
-import { oobeeVitePlugin } from 'oobee-genome/adapters/vite';
+import { defineConfig } from "vite";
+import { oobeeVitePlugin } from "oobee-genome/adapters/vite";
 
 export default defineConfig({
-	plugins: [
-		oobeeVitePlugin({ verbose: true })
-	]
+  plugins: [oobeeVitePlugin({ verbose: true })],
 });
 ```
 
@@ -129,15 +130,14 @@ Add these scripts to your `package.json`:
 
 ```json
 {
-	"scripts": {
-		"dev": "vite",
-		"dev:oobee": "vite --config vite.config.oobee.ts",
-		"build": "vite build"
-	}
+  "scripts": {
+    "dev:oobee": "vite --config vite.config.oobee.ts"
+  }
 }
 ```
 
 **Run dev with oobee enabled:**
+
 ```bash
 npm run dev:oobee
 ```
@@ -154,6 +154,7 @@ npm run dev:oobee
 **Setup in 3 steps:**
 
 **Step 1: Install**
+
 ```bash
 npm install oobee-genome
 ```
@@ -164,21 +165,21 @@ Copy your existing `webpack.config.js` to `webpack.config.oobee.js`, then add th
 
 ```js
 module.exports = {
-	module: {
-		rules: [
-			{
-				test: /\.[jt]sx?$/,
-				exclude: /node_modules/,
-				enforce: 'pre',
-				use: [
-					{
-						loader: require.resolve('oobee-genome/adapters/webpack'),
-						options: { verbose: true }
-					}
-				]
-			}
-		]
-	}
+  module: {
+    rules: [
+      {
+        test: /\.[jt]sx?$/,
+        exclude: /node_modules/,
+        enforce: "pre",
+        use: [
+          {
+            loader: require.resolve("oobee-genome/adapters/webpack"),
+            options: { verbose: true },
+          },
+        ],
+      },
+    ],
+  },
 };
 ```
 
@@ -188,15 +189,14 @@ Add these scripts to your `package.json`:
 
 ```json
 {
-	"scripts": {
-		"dev": "webpack serve --mode development",
-		"dev:oobee": "webpack serve --mode development --config webpack.config.oobee.js",
-		"build": "webpack --mode production"
-	}
+  "scripts": {
+    "dev:oobee": "webpack serve --mode development --config webpack.config.oobee.js"
+  }
 }
 ```
 
 **Run dev with oobee enabled:**
+
 ```bash
 npm run dev:oobee
 ```
@@ -213,6 +213,7 @@ npm run dev:oobee
 **Setup in 3 steps:**
 
 **Step 1: Install**
+
 ```bash
 npm install oobee-genome
 ```
@@ -222,15 +223,15 @@ npm install oobee-genome
 Copy your existing `next.config.js` to `next.config.oobee.js` and wrap your config with the oobee plugin:
 
 ```js
-const { withOobeeDNA } = require('oobee-genome/adapters/next');
+const { withOobeeDNA } = require("oobee-genome/adapters/next");
 
 const nextConfig = {
-	reactStrictMode: true
+  reactStrictMode: true,
 };
 
 module.exports = withOobeeDNA(nextConfig, {
-	verbose: true,
-	enabled: true
+  verbose: true,
+  enabled: true,
 });
 ```
 
@@ -240,13 +241,14 @@ Add this script to your `package.json`:
 
 ```json
 {
-	"scripts": {
-		"dev:oobee": "cp next.config.oobee.js next.config.js && next dev"
-	}
+  "scripts": {
+    "dev:oobee": "cp next.config.oobee.js next.config.js && next dev"
+  }
 }
 ```
 
 **Run dev with oobee enabled:**
+
 ```bash
 npm run dev:oobee
 ```
@@ -283,11 +285,14 @@ Once you've set up oobee-genome, verify your workflow:
 ## 6. Troubleshooting
 
 **Problem:** `npm install oobee-genome` fails with auth error
+
 - **Solution (Internal):** Re-run `aws codeartifact login` (token may have expired)
 - **Solution (External):** Ensure you're using the public npm registry
 
 **Problem:** oobee not activating when I run `npm run dev:oobee`
+
 - **Solution:** Check that your dev config file exists and imports oobee adapter correctly
 
 **Problem:** I accidentally built with the oobee config
+
 - **Solution:** Delete `next.config.js` (if Next.js) or any symlinked configs, restore originals from git, then rebuild
