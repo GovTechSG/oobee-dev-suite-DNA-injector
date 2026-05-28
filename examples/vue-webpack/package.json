@@ -9,7 +9,7 @@
     },
     "dependencies": {
         "vue": "^3.5.13",
-        "oobee-genome": "https://oobee-genome-208297280843.d.codeartifact.ap-southeast-1.amazonaws.com/npm/oobee-genome-repo/oobee-genome/-/oobee-genome-2.0.0.tgz"
+        "@oobee/oobee-genome": "https://oobee-genome-208297280843.d.codeartifact.ap-southeast-1.amazonaws.com/npm/oobee-genome-repo/@oobee/oobee-genome/-/@oobee/oobee-genome-2.0.0.tgz"
     },
     "devDependencies": {
         "@vue/compiler-sfc": "^3.5.13",

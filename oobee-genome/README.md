@@ -16,7 +16,7 @@ Automatic source location tracking for DOM elements across multiple build tools.
 
 ## What This Guide Solves
 
-1. Install `oobee-genome` from AWS CodeArtifact or npm.
+1. Install `@oobee/oobee-genome` from AWS CodeArtifact or npm.
 2. Pick your framework/build tool and wire it up quickly.
 3. Keep production deployments clean by using a separate dev-only build config.
 
@@ -35,7 +35,7 @@ https://govtech.enterprise.slack.com/docs/TCH9UHD61/F0B21BP9W6N
 Install package:
 
 ```bash
-npm install oobee-genome
+npm install @oobee/oobee-genome
 ```
 
 **Notes:**
@@ -47,19 +47,19 @@ npm install oobee-genome
 
 ## 2. Install For External Users (npm Registry)
 
-> **For: External users (when `oobee-genome` is released publicly)**
+> **For: External users (when `@oobee/oobee-genome` is released publicly)**
 
 Install directly from npm:
 
 ```bash
-npm install oobee-genome
+npm install @oobee/oobee-genome
 ```
 
 This section remains below the CodeArtifact section for now. When public release is ready, simply remove the CodeArtifact section above and keep only this one.
 
 ## 3. Dev-Only Strategy (Do Not Ship To Prod)
 
-> **Critical:** oobee-genome is for development/debugging only. Never ship it in production builds.
+> **Critical:** @oobee/oobee-genome is for development/debugging only. Never ship it in production builds.
 
 Use this pattern in every project:
 
@@ -97,7 +97,7 @@ Select your framework below. Click to expand and follow the step-by-step setup.
 **Step 1: Install**
 
 ```bash
-npm install oobee-genome
+npm install @oobee/oobee-genome
 ```
 
 **Step 2: Create dev-only config**
@@ -106,7 +106,7 @@ Copy your existing `vite.config.ts` (or `.js`) to `vite.config.oobee.ts`, then a
 
 ```ts
 import { defineConfig } from "vite";
-import { oobeeVitePlugin } from "oobee-genome/adapters/vite";
+import { oobeeVitePlugin } from "@oobee/oobee-genome/adapters/vite";
 
 export default defineConfig({
   plugins: [oobeeVitePlugin({ verbose: true })],
@@ -145,7 +145,7 @@ npm run dev:oobee
 **Step 1: Install**
 
 ```bash
-npm install oobee-genome
+npm install @oobee/oobee-genome
 ```
 
 **Step 2: Create dev-only config**
@@ -162,7 +162,7 @@ module.exports = {
         enforce: "pre",
         use: [
           {
-            loader: require.resolve("oobee-genome/adapters/webpack"),
+            loader: require.resolve("@oobee/oobee-genome/adapters/webpack"),
             options: { verbose: true },
           },
         ],
@@ -204,7 +204,7 @@ npm run dev:oobee
 **Step 1: Install**
 
 ```bash
-npm install oobee-genome
+npm install @oobee/oobee-genome
 ```
 
 **Step 2: Create dev-only config**
@@ -212,7 +212,7 @@ npm install oobee-genome
 Copy your existing `next.config.js` to `next.config.oobee.js` and wrap your config with the oobee plugin:
 
 ```js
-const { withOobeeDNA } = require("oobee-genome/adapters/next");
+const { withOobeeDNA } = require("@oobee/oobee-genome/adapters/next");
 
 const nextConfig = {
   reactStrictMode: true,
@@ -273,8 +273,8 @@ Perfect for **static HTML, PHP, static site generators**, or any non-Node projec
 Download or copy `oobee-injector.js` from this repo into your project:
 
 ```bash
-# Option A: Copy from oobee-genome repo
-cp oobee-genome/oobee-injector.js your-project/
+# Option A: Copy from @oobee/oobee-genome repo
+cp node_modules/@oobee/oobee-genome/oobee-injector.js your-project/
 
 # Option B: Or download directly
 # Visit: https://raw.githubusercontent.com/oobee/oobee-genome/main/oobee-injector.js
@@ -325,7 +325,7 @@ For projects with `package.json` and a build process.
 **Step 1: Install**
 
 ```bash
-npm install --save-dev esbuild oobee-genome
+npm install --save-dev esbuild @oobee/oobee-genome
 ```
 
 **Step 2: Create dev build script**
@@ -338,7 +338,7 @@ import fs from 'fs';
 
 // Copy injector to dist
 fs.copyFileSync(
-  'node_modules/oobee-genome/oobee-injector.js',
+  'node_modules/@oobee/oobee-genome/oobee-injector.js',
   'dist/oobee-injector.js'
 );
 
@@ -409,17 +409,17 @@ Once you've set up oobee-genome, verify your workflow:
 
 - [ ] You have a dev-only config file (`vite.config.oobee.ts`, `webpack.config.oobee.js`, etc.)
 - [ ] Your `package.json` has both `dev` and `dev:oobee` scripts
-- [ ] `npm run dev:oobee` starts dev server with oobee enabled
-- [ ] `npm run build` uses your original production config (without oobee)
+- [ ] `npm run dev:oobee` starts dev server with @oobee/oobee-genome enabled
+- [ ] `npm run build` uses your original production config (without @oobee/oobee-genome)
 - [ ] You never commit dev config files or changes to production configs
 
-**Rule:** If you see oobee in your built/deployed code, you used the wrong config. Always use `npm run build` for production.
+**Rule:** If you see @oobee/oobee-genome in your built/deployed code, you used the wrong config. Always use `npm run build` for production.
 
 ---
 
 ## 6. Troubleshooting
 
-**Problem:** `npm install oobee-genome` fails with auth error
+**Problem:** `npm install @oobee/oobee-genome` fails with auth error
 
 - **Solution (Internal):** Re-run `aws codeartifact login` (token may have expired)
 - **Solution (External):** Ensure you're using the public npm registry
