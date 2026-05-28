@@ -1,0 +1,192 @@
+.app {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.app-header {
+  background: linear-gradient(135deg, #646cff 0%, #a854c9 100%);
+  color: white;
+  padding: 60px 40px;
+  border-radius: 12px;
+  margin-bottom: 40px;
+  text-align: center;
+}
+
+.app-header h1 {
+  font-size: 36px;
+  margin-bottom: 10px;
+}
+
+.app-header p {
+  font-size: 18px;
+  opacity: 0.9;
+}
+
+.app-main {
+  display: grid;
+  gap: 30px;
+}
+
+.section {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 30px;
+  border-radius: 8px;
+  backdrop-filter: blur(4px);
+}
+
+.section h2 {
+  margin-bottom: 15px;
+  font-size: 24px;
+  color: #646cff;
+}
+
+.section p {
+  margin: 10px 0;
+  line-height: 1.6;
+}
+
+.section ul {
+  margin: 15px 0;
+  padding-left: 25px;
+}
+
+.section li {
+  margin: 8px 0;
+  line-height: 1.6;
+}
+
+.code-block {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 20px;
+  border-radius: 6px;
+  margin: 15px 0;
+  overflow-x: auto;
+  border-left: 4px solid #646cff;
+}
+
+.code-block code {
+  font-family: 'Monaco', 'Courier New', monospace;
+  font-size: 14px;
+  color: #a8dadc;
+  line-height: 1.8;
+}
+
+.counter-card {
+  background: linear-gradient(135deg, rgba(100, 108, 255, 0.1) 0%, rgba(168, 84, 201, 0.1) 100%);
+  padding: 30px;
+  border-radius: 8px;
+  border: 2px solid #646cff;
+  text-align: center;
+}
+
+.counter-card h3 {
+  margin-bottom: 10px;
+  color: #646cff;
+}
+
+.counter-display {
+  margin: 20px 0;
+  padding: 30px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+}
+
+.count-value {
+  font-size: 48px;
+  font-weight: bold;
+  color: #a854c9;
+}
+
+.button-group {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin: 20px 0;
+  flex-wrap: wrap;
+}
+
+.btn {
+  padding: 12px 24px;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s;
+  background: #646cff;
+  color: white;
+}
+
+.btn:hover {
+  background: #a854c9;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(100, 108, 255, 0.4);
+}
+
+.btn:active {
+  transform: translateY(0);
+}
+
+.btn-increment {
+  background: #4CAF50;
+}
+
+.btn-increment:hover {
+  background: #45a049;
+}
+
+.btn-decrement {
+  background: #f44336;
+}
+
+.btn-decrement:hover {
+  background: #da190b;
+}
+
+.btn-reset {
+  background: #ff9800;
+}
+
+.btn-reset:hover {
+  background: #e68900;
+}
+
+.hint {
+  font-size: 12px;
+  opacity: 0.7;
+  margin-top: 15px;
+  font-style: italic;
+}
+
+@media (max-width: 768px) {
+  .app {
+    padding: 10px;
+  }
+
+  .app-header {
+    padding: 30px 20px;
+  }
+
+  .app-header h1 {
+    font-size: 24px;
+  }
+
+  .section {
+    padding: 20px;
+  }
+
+  .button-group {
+    gap: 5px;
+  }
+
+  .btn {
+    padding: 10px 15px;
+    font-size: 12px;
+  }
+
+  .count-value {
+    font-size: 36px;
+  }
+}

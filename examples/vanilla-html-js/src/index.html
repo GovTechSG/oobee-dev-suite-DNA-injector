@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Oobee Sample - Vanilla HTML/CSS/JS</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <nav class="navbar">
+      <h1 class="logo">Oobee Genome Demo</h1>
+      <ul class="nav-links">
+        <li><a href="#home">Home</a></li>
+        <li><a href="#features">Features</a></li>
+        <li><a href="#demo">Demo</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main>
+    <section id="home" class="hero">
+      <h2>Source Location Tracking in Vanilla HTML/JS</h2>
+      <p>Every DOM element on this page has <code>data-oobee-*</code> attributes for debugging and accessibility auditing.</p>
+      <button id="inspectBtn" class="btn btn-primary">Inspect Me in DevTools</button>
+    </section>
+
+    <section id="features" class="features">
+      <h2>Features</h2>
+      <div class="feature-grid">
+        <div class="feature-card">
+          <h3>Source Tracking</h3>
+          <p>Track every element back to its source file and line number.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Dev-Only</h3>
+          <p>Only enabled during development, not in production builds.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Zero Overhead</h3>
+          <p>Just adds data attributes - no runtime performance cost.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Debugging</h3>
+          <p>Perfect for finding where elements are generated in your code.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="demo" class="demo">
+      <h2>Interactive Demo</h2>
+      <div class="demo-container">
+        <div class="input-group">
+          <input type="text" id="taskInput" placeholder="Enter a task..." class="input-field">
+          <button id="addBtn" class="btn btn-success">Add Task</button>
+        </div>
+
+        <ul id="taskList" class="task-list">
+          <li class="task-item">
+            <input type="checkbox" class="task-checkbox">
+            <span class="task-text">Inspect this element with DevTools (F12)</span>
+            <button class="task-delete">Delete</button>
+          </li>
+          <li class="task-item">
+            <input type="checkbox" class="task-checkbox">
+            <span class="task-text">Look for data-oobee-* attributes</span>
+            <button class="task-delete">Delete</button>
+          </li>
+          <li class="task-item">
+            <input type="checkbox" class="task-checkbox">
+            <span class="task-text">Check the source file and line number information</span>
+            <button class="task-delete">Delete</button>
+          </li>
+        </ul>
+
+        <div class="task-stats">
+          <p>Total Tasks: <strong id="totalTasks">3</strong></p>
+          <p>Completed: <strong id="completedTasks">0</strong></p>
+        </div>
+      </div>
+    </section>
+
+    <section class="info">
+      <h2>How to Use Oobee-Genome</h2>
+      <ol>
+        <li>Open DevTools (Press F12 or right-click → Inspect)</li>
+        <li>Go to the Elements/Inspector tab</li>
+        <li>Click the inspect tool and select any element on this page</li>
+        <li>Look for <code>data-oobee-path</code>, <code>data-oobee-line</code>, and <code>data-oobee-column</code> attributes</li>
+        <li>These tell you exactly where that element is defined in the source code!</li>
+      </ol>
+
+      <h3>Example Output:</h3>
+      <pre><code>&lt;button 
+  id="inspectBtn" 
+  class="btn btn-primary"
+  data-oobee-path="/src/index.html"
+  data-oobee-line="24"
+  data-oobee-column="7"
+&gt;
+  Inspect Me in DevTools
+&lt;/button&gt;</code></pre>
+    </section>
+  </main>
+
+  <footer>
+    <p>&copy; 2026 Oobee Genome - Automatic Source Location Tracking</p>
+  </footer>
+
+  <script src="oobee-injector.js"></script>
+  <script src="index.js"></script>
+</body>
+</html>

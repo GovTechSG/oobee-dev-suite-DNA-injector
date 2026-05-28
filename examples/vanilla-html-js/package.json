@@ -1,0 +1,24 @@
+{
+  "name": "oobee-sample-vanilla-html-js",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Sample vanilla HTML/CSS/JS project with oobee-genome source tracking",
+  "scripts": {
+    "dev": "npx http-server src -p 8080 -o",
+    "serve": "npx http-server src -p 8080"
+  },
+  "keywords": [
+    "oobee-genome",
+    "source-tracking",
+    "html",
+    "vanilla-js",
+    "esbuild"
+  ],
+  "author": "Oobee Team",
+  "license": "ISC",
+  "devDependencies": {
+    "esbuild": "^0.21.0",
+    "http-server": "^14.1.1",
+    "oobee-genome": "https://oobee-genome-208297280843.d.codeartifact.ap-southeast-1.amazonaws.com/npm/oobee-genome-repo/oobee-genome/-/oobee-genome-2.0.0.tgz"
+  }
+}

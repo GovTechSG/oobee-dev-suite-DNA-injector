@@ -1,0 +1,23 @@
+{
+    "name": "oobee-sample-nextjs",
+    "version": "1.0.0",
+    "description": "Sample Next.js app with oobee-genome",
+    "scripts": {
+        "dev": "next dev",
+        "build": "next build",
+        "start": "next start",
+        "lint": "next lint"
+    },
+    "dependencies": {
+        "next": "^14.0.0",
+        "oobee-genome": "https://oobee-genome-208297280843.d.codeartifact.ap-southeast-1.amazonaws.com/npm/oobee-genome-repo/oobee-genome/-/oobee-genome-2.0.0.tgz",
+        "react": "^18.2.0",
+        "react-dom": "^18.2.0"
+    },
+    "devDependencies": {
+        "@types/node": "25.6.0",
+        "@types/react": "19.2.14",
+        "eslint": "^8.0.0",
+        "eslint-config-next": "^14.0.0"
+    }
+}

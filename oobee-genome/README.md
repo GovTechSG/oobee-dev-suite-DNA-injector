@@ -83,14 +83,14 @@ Select your framework below. Click to expand and follow the step-by-step setup.
 
 **Available frameworks:**
 
-- Vite (React, Vue, Angular)
-- Webpack (React, Vue, Angular)
+- Vite (React, Vue)
+- Webpack (React, Vue)
 - Next.js
 
 <details>
-<summary><strong>Vite (React, Vue, Angular)</strong></summary>
+<summary><strong>Vite (React, Vue)</strong></summary>
 
-### Vite (React, Vue, Angular)
+### Vite (React, Vue)
 
 **Setup in 3 steps:**
 
@@ -136,9 +136,9 @@ npm run dev:oobee
 </details>
 
 <details>
-<summary><strong>Webpack (React, Vue, Angular)</strong></summary>
+<summary><strong>Webpack (React, Vue)</strong></summary>
 
-### Webpack (React, Vue, Angular)
+### Webpack (React, Vue)
 
 **Setup in 3 steps:**
 
@@ -150,7 +150,7 @@ npm install oobee-genome
 
 **Step 2: Create dev-only config**
 
-Copy your existing `webpack.config.js` to `webpack.config.oobee.js`, then add the oobee loader rule:
+Copy existing `webpack.config.js` to `webpack.config.oobee.js`, then add the oobee loader rule:
 
 ```js
 module.exports = {
@@ -252,6 +252,152 @@ git checkout next.config.js
 or copy it from your version control.
 
 **Important:** Never commit `next.config.js` changes that include oobee. Your production builds must always use the original config.
+
+</details>
+
+<details>
+<summary><strong>Vanilla HTML/CSS/JS (No Framework)</strong></summary>
+
+### Vanilla HTML/CSS/JS (No Framework)
+
+For pure HTML/CSS/JavaScript projects. **Two approaches available:**
+
+---
+
+#### Approach 1: Copy-Paste Script (Simplest - No npm/Node Required)
+
+Perfect for **static HTML, PHP, static site generators**, or any non-Node project.
+
+**Step 1: Copy the injector script**
+
+Download or copy `oobee-injector.js` from this repo into your project:
+
+```bash
+# Option A: Copy from oobee-genome repo
+cp oobee-genome/oobee-injector.js your-project/
+
+# Option B: Or download directly
+# Visit: https://raw.githubusercontent.com/oobee/oobee-genome/main/oobee-injector.js
+```
+
+**Step 2: Add to your HTML**
+
+Add this line before closing `</body>`:
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <title>My Project</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Your content here -->
+  
+  <script src="oobee-injector.js"></script>
+</body>
+</html>
+```
+
+**Step 3: Done!**
+
+- Open your HTML file in a browser (works with `file://` protocol)
+- Open DevTools (F12) and inspect any element
+- Look for `data-oobee-*` attributes ✅
+
+
+**What gets injected:**
+
+Each element receives:
+- `data-oobee-file` - Current page URL
+- `data-oobee-element` - Element selector (tag#id.class)
+- `data-oobee-index` - Position in DOM
+- `data-oobee-timestamp` - ISO timestamp
+
+**Works with dynamic elements:** The script watches for new elements added via JavaScript and automatically injects attributes.
+
+---
+
+#### Approach 2: NPM + esbuild Build (For Node Projects)
+
+For projects with `package.json` and a build process.
+
+**Step 1: Install**
+
+```bash
+npm install --save-dev esbuild oobee-genome
+```
+
+**Step 2: Create dev build script**
+
+Create `build.oobee.mjs`:
+
+```js
+import esbuild from 'esbuild';
+import fs from 'fs';
+
+// Copy injector to dist
+fs.copyFileSync(
+  'node_modules/oobee-genome/oobee-injector.js',
+  'dist/oobee-injector.js'
+);
+
+// Bundle JavaScript
+await esbuild.build({
+  entryPoints: ['src/index.js'],
+  bundle: true,
+  outdir: 'dist',
+  sourcemap: true
+});
+
+// Copy HTML and CSS
+fs.copyFileSync('src/index.html', 'dist/index.html');
+fs.copyFileSync('src/styles.css', 'dist/styles.css');
+
+console.log('✅ Build complete with oobee-genome!');
+```
+
+**Step 3: Update package.json scripts**
+
+```json
+{
+  "scripts": {
+    "dev": "npx http-server src -p 8080 -o",
+    "build": "npm run build:prod",
+    "build:prod": "esbuild src/index.js --bundle --outdir=dist"
+  }
+}
+```
+
+**Step 4: Run dev with oobee**
+
+```bash
+npm run dev
+```
+
+Then:
+1. Open http://localhost:8080
+2. Open DevTools (F12)
+3. Inspect elements → see `data-oobee-*` attributes
+
+**For production:** Use `npm run build` which builds without oobee.
+
+---
+
+#### Which Approach to Use?
+
+| Approach | Use When | Pros | Cons |
+|----------|----------|------|------|
+| **Copy-Paste Script** | Static HTML, PHP, no build process | Simple, no npm, works anywhere | Manual script management |
+| **NPM + esbuild** | Node project with build process | Automated, integrated, sourcemaps | Requires Node.js |
+
+**Both approaches support:**
+- ✅ Adding injector via script tag
+- ✅ Watching dynamic elements
+- ✅ Full console API
+- ✅ Works with `file://` protocol
+- ✅ Easy to remove for production
+
 
 </details>
 

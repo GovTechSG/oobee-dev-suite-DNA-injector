@@ -1,0 +1,24 @@
+{
+    "name": "oobee-sample-vue-webpack",
+    "version": "1.0.0",
+    "description": "Sample Vue app using Webpack with oobee-genome",
+    "scripts": {
+        "dev": "webpack serve --mode development",
+        "start": "webpack serve --mode development --open",
+        "build": "webpack --mode production"
+    },
+    "dependencies": {
+        "vue": "^3.5.13",
+        "oobee-genome": "https://oobee-genome-208297280843.d.codeartifact.ap-southeast-1.amazonaws.com/npm/oobee-genome-repo/oobee-genome/-/oobee-genome-2.0.0.tgz"
+    },
+    "devDependencies": {
+        "@vue/compiler-sfc": "^3.5.13",
+        "css-loader": "^6.11.0",
+        "html-webpack-plugin": "^5.6.0",
+        "style-loader": "^3.3.4",
+        "vue-loader": "^17.4.2",
+        "webpack": "^5.92.0",
+        "webpack-cli": "^5.1.4",
+        "webpack-dev-server": "^4.15.2"
+    }
+}
