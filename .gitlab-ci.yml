@@ -1,0 +1,85 @@
+include:
+  - project: "wog/gvt/wogaa/projects/oobee/oobee-web-infra"
+    ref: master
+    file:
+      - "gitlab-template/vars/.aws-gitlab-keys.yml"
+
+stages:
+  - validate
+  - publish
+
+image: registry.sgts.gitlab-dedicated.com/wog/gvt/wogaa/projects/cicd-images/alpine-3.19-node-22:latest
+
+variables:
+  ENV: 
+    value: "nprod"
+    options:
+      - "nprod"
+      - "prod"
+  NPM_CONFIG_AUDIT: "false"
+  NPM_CONFIG_FUND: "false"
+
+workflow:
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_PIPELINE_SOURCE === "web"
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+.development-trigger-rule:
+  allow_failure: false
+  rules:
+    - if: '$CI_COMMIT_TAG'
+      when: never
+    - if: $CI_COMMIT_BRANCH == "develop"
+    - if: $ENV == "nprod"
+
+.production-trigger-rule:
+  allow_failure: false
+  environment: production
+  rules:
+    - if: '$CI_COMMIT_TAG'
+    - if: $ENV == "prod"
+      when: manual
+
+pack_check:
+  stage: validate
+  before_script:
+    - cd oobee-genome
+  script:
+    - npm run pack:check
+  
+publish_codeartifact:
+  stage: publish
+  needs:
+    - pack_check
+  before_script:
+    - cd oobee-genome
+    - npm ci
+  script:
+    - |
+      : "Required variables: AWS_REGION, AWS_ACCOUNT_ID, AWS_CODEARTIFACT_DOMAIN, AWS_CODEARTIFACT_REPOSITORY"
+      aws codeartifact login \
+        --tool npm \
+        --domain "$AWS_CODEARTIFACT_DOMAIN" \
+        --domain-owner "$AWS_ACCOUNT_ID" \
+        --repository "$AWS_CODEARTIFACT_REPOSITORY" \
+        --region "$AWS_REGION"
+    - npm publish
+  extends:
+    - .development-trigger-rule
+    - .dev-variables
+
+publish_npm:
+  stage: publish
+  needs:
+    - pack_check
+  before_script:
+    - cd oobee-genome
+    - npm ci
+  script:
+    - echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
+    - npm config set @oobee:registry https://registry.npmjs.org/
+    - npm publish --access public --registry https://registry.npmjs.org/
+  extends:
+    - .production-trigger-rule
