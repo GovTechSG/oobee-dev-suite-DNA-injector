@@ -60,7 +60,7 @@ publish_codeartifact:
     - pack_check
   before_script:
     - cd oobee-genome
-    - npm ci
+    - npm install
   script:
     - |
       : "Required variables: AWS_REGION, AWS_ACCOUNT_ID, AWS_CODEARTIFACT_DOMAIN, AWS_CODEARTIFACT_REPOSITORY"
@@ -81,7 +81,7 @@ publish_npm:
     - pack_check
   before_script:
     - cd oobee-genome
-    - npm ci
+    - npm install
   script:
     - echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
     - npm config set @oobee:registry https://registry.npmjs.org/
