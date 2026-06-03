@@ -63,13 +63,13 @@ publish_codeartifact:
     - npm install
   script:
     - |
-      : "Required variables: AWS_REGION, AWS_ACCOUNT_ID, AWS_CODEARTIFACT_DOMAIN, AWS_CODEARTIFACT_REPOSITORY"
+      : "Required variables: AWS_DEFAULT_REGION, AWS_ACCOUNT_ID, AWS_CODEARTIFACT_DOMAIN, AWS_CODEARTIFACT_REPOSITORY"
       aws codeartifact login \
         --tool npm \
         --domain "$AWS_CODEARTIFACT_DOMAIN" \
         --domain-owner "$AWS_ACCOUNT_ID" \
         --repository "$AWS_CODEARTIFACT_REPOSITORY" \
-        --region "$AWS_REGION"
+        --region "$AWS_DEFAULT_REGION"
     - npm publish
   extends:
     - .development-trigger-rule
