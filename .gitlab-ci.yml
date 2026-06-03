@@ -26,6 +26,11 @@ workflow:
     - if: $CI_PIPELINE_SOURCE === "web"
     - if: $CI_COMMIT_BRANCH == "develop"
 
+.dev-variables:
+  variables: !reference [.aws-vars, ci]
+.prd-variables:
+  variables: !reference [.aws-vars, prd]
+
 .development-trigger-rule:
   allow_failure: false
   rules:
