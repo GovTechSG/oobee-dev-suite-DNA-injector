@@ -29,7 +29,7 @@ npm start
 The DNA injector is configured in `next.config.js`:
 
 ```javascript
-const { withOobeeDNA } = require("oobee-genome/adapters/next");
+const { withOobeeDNA } = require("@oobee/oobee-genome/adapters/next");
 
 const nextConfig = {
   reactStrictMode: true,

@@ -1,6 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import oobeeVite from 'oobee-genome/adapters/vite'
+import oobeeVite from '@oobee/oobee-genome/adapters/vite'
 
 export default defineConfig({
     plugins: [

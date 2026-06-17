@@ -22,7 +22,10 @@ function injectDNA(code, filePath, options = {}) {
     }
 
     const escapedPath = filePath.replace(/"/g, '\\"');
-    const regex = /<([A-Z][a-zA-Z0-9\.]*|[a-z][a-z0-9\-]*)/g;
+    // Improved regex to only match JSX/HTML opening tags, not TypeScript generics
+    // Uses negative lookbehind to exclude generics (preceded by identifier or >)
+    // Uses lookahead to ensure followed by space, >, or / (JSX patterns)
+    const regex = /(?<![>\w])<([A-Z][a-zA-Z0-9\.]*|[a-z][a-z0-9\-]*)(?=[\s>/])/g;
 
     const transformedCode = code.replace(
         regex,
