@@ -1,6 +1,6 @@
 {
   "name": "@oobee/oobee-genome",
-  "version": "2.0.2",
+  "version": "2.0.4",
   "type": "module",
   "main": "index.cjs",
   "module": "index.js",
