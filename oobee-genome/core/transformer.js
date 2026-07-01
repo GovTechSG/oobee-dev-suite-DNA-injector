@@ -1,3 +1,5 @@
+import { resolve } from 'path';
+
 function getPosition(str, index) {
     const lines = str.substring(0, index).split('\n');
     return {
@@ -21,7 +23,7 @@ function injectDNA(code, filePath, options = {}) {
         return code;
     }
 
-    const escapedPath = filePath.replace(/"/g, '\\"');
+    const escapedPath = getSourcePath(filePath).replace(/"/g, '\\"');
     const regex = /<([A-Z][a-zA-Z0-9\.]*|[a-z][a-z0-9\-]*)/g;
 
     const transformedCode = code.replace(
@@ -38,6 +40,11 @@ function injectDNA(code, filePath, options = {}) {
     );
 
     return transformedCode;
+}
+
+function getSourcePath(filePath) {
+    const cleanPath = filePath.split('?')[0];
+    return resolve(cleanPath);
 }
 
 function shouldTransform(filePath, options = {}) {
