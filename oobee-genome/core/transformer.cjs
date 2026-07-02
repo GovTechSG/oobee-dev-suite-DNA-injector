@@ -1,4 +1,4 @@
-const { relative } = require('path');
+const { relative, resolve } = require('path');
 
 function getPosition(str, index) {
     const lines = str.substring(0, index).split('\n');
@@ -10,6 +10,11 @@ function getPosition(str, index) {
 
 function getRelativePath(filePath, rootPath = process.cwd()) {
     return relative(rootPath, filePath);
+}
+
+function getSourcePath(filePath) {
+    const cleanPath = filePath.split('?')[0];
+    return resolve(cleanPath);
 }
 
 function injectDNA(code, filePath, options = {}) {
@@ -27,8 +32,8 @@ function injectDNA(code, filePath, options = {}) {
         return code;
     }
 
-    const relativePath = getRelativePath(filePath);
-    const escapedPath = relativePath.replace(/"/g, '\\"');
+    const sourcePath = getSourcePath(filePath);
+    const escapedPath = sourcePath.replace(/"/g, '\\"');
     // Improved regex to only match JSX/HTML opening tags, not TypeScript generics
     // Uses negative lookbehind to exclude generics (preceded by identifier or >)
     // Uses lookahead to ensure followed by space, >, or / (JSX patterns)
