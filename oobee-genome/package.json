@@ -1,5 +1,5 @@
 {
-  "name": "@oobee/oobee-genome",
+  "name": "@govtechsg/oobee-genome",
   "version": "2.0.4",
   "type": "module",
   "main": "index.cjs",
@@ -88,8 +88,5 @@
       "import": "./core/utils.js",
       "require": "./core/utils.cjs"
     }
-  },
-  "publishConfig": {
-    "registry": "https://oobee-genome-208297280843.d.codeartifact.ap-southeast-1.amazonaws.com/npm/oobee-genome-repo/"
   }
 }
