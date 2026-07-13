@@ -2,60 +2,23 @@
 
 Automatic source location tracking for DOM elements across multiple build tools.
 
----
-
-## Quick Start
-
-**Are you:**
-
-- **Internal team member?** → Follow "Install For Internal Teams" below
-- **External user (when released)?** → Follow "Install For External Users" below
-- **Ready to set up your framework?** → Jump to "Choose Your Framework / Build Tool"
 
 ---
 
 ## What This Guide Solves
 
-1. Install `@oobee/oobee-genome` from AWS CodeArtifact or npm.
+1. Install `@oobee/oobee-genome` from npm.
 2. Pick your framework/build tool and wire it up quickly.
 3. Keep production deployments clean by using a separate dev-only build config.
 
 ---
 
-## 1. Install For Internal Teams (AWS CodeArtifact)
-
-> **For: Internal team members with AWS access**
-
-Run this once per machine/session (replace placeholders):
-
-Steps to login into AWS codeartifact are here
-
-https://govtech.enterprise.slack.com/docs/TCH9UHD61/F0B21BP9W6N
-
-Install package:
+## 2. Installation
 
 ```bash
 npm install @oobee/oobee-genome
 ```
 
-**Notes:**
-
-1. `aws codeartifact login` writes auth + registry to your user `.npmrc`.
-2. Login token expires (typically 12h). Run login again when installs fail with auth errors.
-
----
-
-## 2. Install For External Users (npm Registry)
-
-> **For: External users (when `@oobee/oobee-genome` is released publicly)**
-
-Install directly from npm:
-
-```bash
-npm install @oobee/oobee-genome
-```
-
-This section remains below the CodeArtifact section for now. When public release is ready, simply remove the CodeArtifact section above and keep only this one.
 
 ## 3. Dev-Only Strategy (Do Not Ship To Prod)
 
