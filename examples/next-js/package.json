@@ -10,7 +10,7 @@
     },
     "dependencies": {
         "next": "^14.0.0",
-        "@oobee/oobee-genome": "https://oobee-genome-208297280843.d.codeartifact.ap-southeast-1.amazonaws.com/npm/oobee-genome-repo/@oobee/oobee-genome/-/@oobee/oobee-genome-2.0.0.tgz",
+        "@govtechsg/oobee-genome": "2.0.4",
         "react": "^18.2.0",
         "react-dom": "^18.2.0"
     },

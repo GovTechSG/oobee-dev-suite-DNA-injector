@@ -29,7 +29,7 @@ npm run preview
 The DNA injector is configured in `vite.config.js`:
 
 ```javascript
-import oobeeVite from "@oobee/oobee-genome/adapters/vite";
+import oobeeVite from "@govtechsg/oobee-genome/adapters/vite";
 
 export default defineConfig({
   plugins: [oobeeVite({ verbose: true }), react()],

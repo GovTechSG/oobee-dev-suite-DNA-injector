@@ -20,7 +20,7 @@ module.exports = {
                 enforce: 'pre',
                 use: [
                     {
-                        loader: require.resolve('@oobee/oobee-genome/adapters/webpack'),
+                        loader: require.resolve('@govtechsg/oobee-genome/adapters/webpack'),
                         options: { verbose: false }
                     }
                 ]

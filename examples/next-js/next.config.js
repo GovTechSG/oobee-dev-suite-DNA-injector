@@ -1,4 +1,4 @@
-const { withOobeeDNA } = require('@oobee/oobee-genome/adapters/next');
+const { withOobeeDNA } = require('@govtechsg/oobee-genome/adapters/next');
 
 const nextConfig = {
     reactStrictMode: true,
