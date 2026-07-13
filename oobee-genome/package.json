@@ -20,9 +20,9 @@
     "wcag",
     "dna-injection"
   ],
-  "author": "Oobee Team",
-  "license": "ISC",
-  "homepage": "https://github.com/GovTechSG/oobee-dev-suite-DNA-injector",
+  "author": "Government Technology Agency <info@tech.gov.sg>",
+  "license": "MIT",
+  "homepage": "https://github.com/GovTechSG/oobee-dev-suite-DNA-injector#readme",
   "bugs": {
     "url": "https://github.com/GovTechSG/oobee-dev-suite-DNA-injector/issues"
   },
