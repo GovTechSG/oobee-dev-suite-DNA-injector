@@ -22,13 +22,13 @@
   ],
   "author": "Oobee Team",
   "license": "ISC",
-  "homepage": "https://github.com/oobee/oobee-ai-dev-suit-dynamic-linter/tree/main/oobee-genome",
+  "homepage": "https://github.com/GovTechSG/oobee-dev-suite-DNA-injector",
   "bugs": {
-    "url": "https://github.com/oobee/oobee-ai-dev-suit-dynamic-linter/issues"
+    "url": "https://github.com/GovTechSG/oobee-dev-suite-DNA-injector/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/oobee/oobee-ai-dev-suit-dynamic-linter.git"
+    "url": "https://github.com/GovTechSG/oobee-dev-suite-DNA-injector.git"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
