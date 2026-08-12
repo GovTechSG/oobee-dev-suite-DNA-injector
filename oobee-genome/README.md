@@ -1,25 +1,40 @@
-# oobee-genome
+# 🧬 oobee-genome
 
 Automatic source location tracking for DOM elements across multiple build tools.
 
 
----
 
-## What This Guide Solves
+
+## 🎯 What This Guide Solves
 
 1. Install `@govtechsg/oobee-genome` from npm.
 2. Pick your framework/build tool and wire it up quickly.
 3. Keep production deployments clean by using a separate dev-only build config.
 
----
 
-## 2. Installation
+
+## 2. 📦 Installation
 
 ```bash
 npm install @govtechsg/oobee-genome
 ```
 
-## 3. Choose Your Framework / Build Tool
+
+
+
+<h3 style="color: red;">⚠️ Do Not Ship oobee-genome to Production</h3>
+
+> [!CAUTION]
+> **@govtechsg/oobee-genome is for development/debugging only. Never ship it in production builds.**
+>
+> Keep this in mind throughout the setup:
+> - Your **production config** (`vite.config.js`, `next.config.js`, etc.) must never include oobee.
+> - Always create a **separate** dev-only config file (e.g. `vite.config.oobee.ts`, `webpack.config.oobee.js`, `next.config.oobee.js`).
+> - Use `npm run dev:oobee` for local debugging, and `npm run build` for all production builds.
+
+
+
+## 3. 🛠️ Choose Your Framework / Build Tool
 
 Select your framework below. Click to expand and follow the step-by-step setup.
 
@@ -32,7 +47,9 @@ Select your framework below. Click to expand and follow the step-by-step setup.
 <details>
 <summary><strong>Vite (React, Vue)</strong></summary>
 
-### Vite (React, Vue)
+### ⚡ Vite (React, Vue)
+
+<span style="color: red; font-size: 1.1em;">**Important:** Always use `npm run build` for production. It uses the original `vite.config.ts`, never the oobee config.</span>
 
 **Setup in 3 steps:**
 
@@ -74,14 +91,14 @@ Add these scripts to your `package.json`:
 npm run dev:oobee
 ```
 
-**Important:** Always use `npm run build` for production. It uses the original `vite.config.ts`, never the oobee config.
-
 </details>
 
 <details>
 <summary><strong>Webpack (React, Vue)</strong></summary>
 
-### Webpack (React, Vue)
+### 📦 Webpack (React, Vue)
+
+<span style="color: red; font-size: 1.1em;">**Important:** Always use `npm run build` for production. It uses the original `webpack.config.js`, never the oobee config.</span>
 
 **Setup in 3 steps:**
 
@@ -133,14 +150,14 @@ Add these scripts to your `package.json`:
 npm run dev:oobee
 ```
 
-**Important:** Always use `npm run build` for production. It uses the original `webpack.config.js`, never the oobee config.
-
 </details>
 
 <details>
 <summary><strong>Next.js</strong></summary>
 
-### Next.js
+### ▲ Next.js
+
+<span style="color: red; font-size: 1.1em;">**Important:** Never commit `next.config.js` changes that include oobee. Your production builds must always use the original config.</span>
 
 **Setup in 3 steps:**
 
@@ -161,10 +178,12 @@ const nextConfig = {
   reactStrictMode: true,
 };
 
+
 module.exports = withOobeeDNA(nextConfig, {
   verbose: true,
   enabled: true,
 });
+
 ```
 
 **Step 3: Update package.json scripts**
@@ -194,20 +213,18 @@ git checkout next.config.js
 
 or copy it from your version control.
 
-**Important:** Never commit `next.config.js` changes that include oobee. Your production builds must always use the original config.
-
 </details>
 
 <details>
 <summary><strong>Vanilla HTML/CSS/JS (No Framework)</strong></summary>
 
-### Vanilla HTML/CSS/JS (No Framework)
+### 🌐 Vanilla HTML/CSS/JS (No Framework)
 
 For pure HTML/CSS/JavaScript projects. **Two approaches available:**
 
----
 
-#### Approach 1: Copy-Paste Script (Simplest - No npm/Node Required)
+
+#### 📋 Approach 1: Copy-Paste Script (Simplest - No npm/Node Required)
 
 Perfect for **static HTML, PHP, static site generators**, or any non-Node project.
 
@@ -259,9 +276,9 @@ Each element receives:
 
 **Works with dynamic elements:** The script watches for new elements added via JavaScript and automatically injects attributes.
 
----
 
-#### Approach 2: NPM + esbuild Build (For Node Projects)
+
+#### 🔨 Approach 2: NPM + esbuild Build (For Node Projects)
 
 For projects with `package.json` and a build process.
 
@@ -325,9 +342,9 @@ Then:
 
 **For production:** Use `npm run build` which builds without oobee.
 
----
 
-#### Which Approach to Use?
+
+#### 🤔 Which Approach to Use?
 
 | Approach | Use When | Pros | Cons |
 |----------|----------|------|------|
@@ -344,29 +361,8 @@ Then:
 
 </details>
 
----
 
-## 4. Dev-Only Strategy (Do Not Ship To Prod)
-
-> **Critical:** @govtechsg/oobee-genome is for development/debugging only. Never ship it in production builds.
-
-Use this pattern in every project:
-
-1. Keep your current production config unchanged (e.g., `vite.config.js`, `next.config.js`).
-2. Create a new dev-only config file (e.g., `vite.config.oobee.ts`, `webpack.config.oobee.js`).
-3. Add oobee plugin/loader only in the new file.
-4. Run `npm run dev:oobee` to start dev builds with oobee enabled.
-5. Run `npm run build` normally for production—it always uses your original config.
-
-Recommended naming:
-
-- Vite: `vite.config.oobee.ts` or `vite.config.oobee.js`
-- Webpack: `webpack.config.oobee.js`
-- Next.js: `next.config.oobee.js`
-
----
-
-## 5. After Setup: Checklist
+## 4. ✅ After Setup: Checklist
 
 Once you've set up oobee-genome, verify your workflow:
 
@@ -380,7 +376,7 @@ Once you've set up oobee-genome, verify your workflow:
 
 ---
 
-## 6. Troubleshooting
+## 5. 🔧 Troubleshooting
 
 **Problem:** `npm install @govtechsg/oobee-genome` fails with auth error
 
