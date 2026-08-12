@@ -19,28 +19,7 @@ Automatic source location tracking for DOM elements across multiple build tools.
 npm install @govtechsg/oobee-genome
 ```
 
-
-## 3. Dev-Only Strategy (Do Not Ship To Prod)
-
-> **Critical:** @govtechsg/oobee-genome is for development/debugging only. Never ship it in production builds.
-
-Use this pattern in every project:
-
-1. Keep your current production config unchanged (e.g., `vite.config.js`, `next.config.js`).
-2. Create a new dev-only config file (e.g., `vite.config.oobee.ts`, `webpack.config.oobee.js`).
-3. Add oobee plugin/loader only in the new file.
-4. Run `npm run dev:oobee` to start dev builds with oobee enabled.
-5. Run `npm run build` normally for production—it always uses your original config.
-
-Recommended naming:
-
-- Vite: `vite.config.oobee.ts` or `vite.config.oobee.js`
-- Webpack: `webpack.config.oobee.js`
-- Next.js: `next.config.oobee.js`
-
----
-
-## 4. Choose Your Framework / Build Tool
+## 3. Choose Your Framework / Build Tool
 
 Select your framework below. Click to expand and follow the step-by-step setup.
 
@@ -70,9 +49,10 @@ Copy your existing `vite.config.ts` (or `.js`) to `vite.config.oobee.ts`, then a
 ```ts
 import { defineConfig } from "vite";
 import { oobeeVitePlugin } from "@govtechsg/oobee-genome/adapters/vite";
+import react from '@vitejs/plugin-react'
 
 export default defineConfig({
-  plugins: [oobeeVitePlugin({ verbose: true })],
+  plugins: [react(),oobeeVitePlugin({ verbose: true })],
 });
 ```
 
@@ -363,6 +343,26 @@ Then:
 
 
 </details>
+
+---
+
+## 4. Dev-Only Strategy (Do Not Ship To Prod)
+
+> **Critical:** @govtechsg/oobee-genome is for development/debugging only. Never ship it in production builds.
+
+Use this pattern in every project:
+
+1. Keep your current production config unchanged (e.g., `vite.config.js`, `next.config.js`).
+2. Create a new dev-only config file (e.g., `vite.config.oobee.ts`, `webpack.config.oobee.js`).
+3. Add oobee plugin/loader only in the new file.
+4. Run `npm run dev:oobee` to start dev builds with oobee enabled.
+5. Run `npm run build` normally for production—it always uses your original config.
+
+Recommended naming:
+
+- Vite: `vite.config.oobee.ts` or `vite.config.oobee.js`
+- Webpack: `webpack.config.oobee.js`
+- Next.js: `next.config.oobee.js`
 
 ---
 
