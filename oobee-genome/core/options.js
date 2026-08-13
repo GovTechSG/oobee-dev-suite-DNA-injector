@@ -1,12 +1,14 @@
 const DEFAULT_OPTIONS = {
     // File patterns to include for transformation
-    includePatterns: [/\.(ts|tsx|js|jsx|vue|html)$/],
+    includePatterns: [/\.(ts|tsx|js|jsx|mjs|cjs|vue|html?)$/],
 
     // File patterns to exclude from transformation
-    excludePatterns: [/node_modules/, /\.d\.ts$/, /\.spec\.(tsx|jsx)$/, /\.test\.(tsx|jsx)$/],
+    excludePatterns: [/node_modules/, /\.d\.ts$/, /\.spec\.(tsx|jsx|ts|js)$/, /\.test\.(tsx|jsx|ts|js)$/],
 
-    // Component/tag names to blacklist from transformation
-    blacklist: ['void', 'string', 'number', 'boolean', 'any', 'unknown', 'React'],
+    // Extra component/tag names to skip. The transformer already excludes
+    // TypeScript primitives and utility types by default; this list is merged
+    // on top so users can add project-specific component names to skip.
+    blacklist: [],
 
     // Attribute prefix for DNA data
     attributePrefix: 'data-oobee',

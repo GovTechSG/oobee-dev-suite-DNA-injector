@@ -1,7 +1,7 @@
 const DEFAULT_OPTIONS = {
-    includePatterns: [/\.(ts|tsx|js|jsx|vue|html)$/],
-    excludePatterns: [/node_modules/, /\.d\.ts$/, /\.spec\.(tsx|jsx)$/, /\.test\.(tsx|jsx)$/],
-    blacklist: ['void', 'string', 'number', 'boolean', 'any', 'unknown', 'React'],
+    includePatterns: [/\.(ts|tsx|js|jsx|mjs|cjs|vue|html?)$/],
+    excludePatterns: [/node_modules/, /\.d\.ts$/, /\.spec\.(tsx|jsx|ts|js)$/, /\.test\.(tsx|jsx|ts|js)$/],
+    blacklist: [],
     attributePrefix: 'data-oobee',
     enabled: true,
     verbose: false
