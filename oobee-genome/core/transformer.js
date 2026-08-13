@@ -1,13 +1,5 @@
 import { resolve } from 'path';
 
-function getPosition(str, index) {
-    const lines = str.substring(0, index).split('\n');
-    return {
-        line: lines.length,
-        column: lines[lines.length - 1].length + 1
-    };
-}
-
 /**
  * Returns the 1-based line and column for a character at `index` inside `str`.
  *
@@ -224,12 +216,108 @@ function injectDNA(code, filePath, options = {}) {
         result = result.slice(0, insertAt) + dnaAttrs + result.slice(insertAt);
     }
 
+    // ── Second pass: React.createElement() calls ──────────────────────────
+    // Plain .ts files cannot use JSX angle-bracket syntax — TypeScript only
+    // allows <Tag> in .tsx files. Authors fall back to React.createElement():
+    //
+    //   React.createElement('article', { style: {…} }, child)
+    //
+    // The JSX regex above finds nothing in such files, so we need a separate
+    // pass that injects data-oobee-* into the props argument instead.
+    result = injectCreateElementCalls(result, escapedPath);
+
     return result;
 }
 
 function getSourcePath(filePath) {
     const cleanPath = filePath.split('?')[0];
     return resolve(cleanPath);
+}
+
+/**
+ * Second-pass injection for React.createElement() calls.
+ *
+ * JSX angle-bracket syntax is only valid in .tsx / .jsx files. In plain .ts
+ * files every element must be constructed with React.createElement(), so the
+ * first-pass JSX regex never fires. This function finds those calls and injects
+ * data-oobee-* attributes into their props argument.
+ *
+ * Three props shapes are handled:
+ *
+ *   null / undefined  → replaced with { 'data-oobee-*': '…' }
+ *   { … }             → attributes injected at the opening { of the object
+ *   anything else     → left untouched (a variable, expression, etc.)
+ *
+ * Injection is applied in reverse offset order so earlier positions are not
+ * shifted by later insertions — the same strategy used by the JSX pass.
+ */
+function injectCreateElementCalls(code, escapedPath) {
+    // Match: React.createElement( <firstArg> ,
+    //
+    // firstArg may be:
+    //   A quoted string  — 'div', "span", `article`
+    //   An identifier    — MyComponent, React.Fragment, ctx.Card
+    //
+    // After the match, match.index + match[0].length is the start of the
+    // second argument (the props).
+    const ceRegex =
+        /\bReact\.createElement\(\s*(?:'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`|[A-Za-z_$][\w$.]*)\s*,\s*/g;
+
+    const injections = [];
+    let m;
+
+    while ((m = ceRegex.exec(code)) !== null) {
+        const callStart  = m.index;                  // position of `R` in `React.`
+        const propsStart = m.index + m[0].length;    // start of the props arg
+        const rest       = code.slice(propsStart);
+
+        if (/^(?:null|undefined)\b/.test(rest)) {
+            // Props is null or undefined — record range to replace entirely
+            const nullLen = rest.match(/^(?:null|undefined)/)[0].length;
+            injections.push({
+                type: 'replace',
+                callStart,
+                replaceStart: propsStart,
+                replaceEnd:   propsStart + nullLen,
+            });
+        } else if (rest[0] === '{') {
+            // Props is an object literal — inject right after the opening {
+            injections.push({
+                type: 'object',
+                callStart,
+                insertAt: propsStart + 1,
+            });
+        }
+        // Variable / complex expression → skip, cannot safely inject
+    }
+
+    // Apply in reverse order so each splice does not invalidate earlier offsets
+    let result = code;
+    for (let i = injections.length - 1; i >= 0; i--) {
+        const inj = injections[i];
+        const pos = getPosition(code, inj.callStart);
+        // Use quoted-string property names because data-* keys contain hyphens
+        const attrs =
+            ` 'data-oobee-path': "${escapedPath}",` +
+            ` 'data-oobee-line': "${pos.line}",` +
+            ` 'data-oobee-column': "${pos.column}",`;
+
+        if (inj.type === 'replace') {
+            // Replace null / undefined with a fresh props object
+            result =
+                result.slice(0, inj.replaceStart) +
+                `{${attrs} }` +
+                result.slice(inj.replaceEnd);
+        } else {
+            // Inject at the start of the existing object (trailing comma is valid JS)
+            result =
+                result.slice(0, inj.insertAt) +
+                attrs +
+                result.slice(inj.insertAt);
+        }
+    }
+
+    return result;
 }
 
 function shouldTransform(filePath, options = {}) {

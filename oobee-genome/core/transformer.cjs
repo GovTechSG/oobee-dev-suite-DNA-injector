@@ -228,6 +228,87 @@ function injectDNA(code, filePath, options = {}) {
         result = result.slice(0, insertAt) + dnaAttrs + result.slice(insertAt);
     }
 
+    // ── Second pass: React.createElement() calls ──────────────────────────
+    // Plain .ts files cannot use JSX angle-bracket syntax — TypeScript only
+    // allows <Tag> in .tsx files. Authors fall back to React.createElement():
+    //
+    //   React.createElement('article', { style: {…} }, child)
+    //
+    // The JSX regex above finds nothing in such files, so we need a separate
+    // pass that injects data-oobee-* into the props argument instead.
+    result = injectCreateElementCalls(result, escapedPath);
+
+    return result;
+}
+
+/**
+ * Second-pass injection for React.createElement() calls.
+ *
+ * JSX angle-bracket syntax is only valid in .tsx / .jsx files. In plain .ts
+ * files every element must be constructed with React.createElement(), so the
+ * first-pass JSX regex never fires. This function finds those calls and injects
+ * data-oobee-* attributes into their props argument.
+ *
+ * Three props shapes are handled:
+ *
+ *   null / undefined  → replaced with { 'data-oobee-*': '…' }
+ *   { … }             → attributes injected at the opening { of the object
+ *   anything else     → left untouched (a variable, expression, etc.)
+ *
+ * Injection is applied in reverse offset order so earlier positions are not
+ * shifted by later insertions — the same strategy used by the JSX pass.
+ */
+function injectCreateElementCalls(code, escapedPath) {
+    const ceRegex =
+        /\bReact\.createElement\(\s*(?:'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`|[A-Za-z_$][\w$.]*)\s*,\s*/g;
+
+    const injections = [];
+    let m;
+
+    while ((m = ceRegex.exec(code)) !== null) {
+        const callStart  = m.index;
+        const propsStart = m.index + m[0].length;
+        const rest       = code.slice(propsStart);
+
+        if (/^(?:null|undefined)\b/.test(rest)) {
+            const nullLen = rest.match(/^(?:null|undefined)/)[0].length;
+            injections.push({
+                type: 'replace',
+                callStart,
+                replaceStart: propsStart,
+                replaceEnd:   propsStart + nullLen,
+            });
+        } else if (rest[0] === '{') {
+            injections.push({
+                type: 'object',
+                callStart,
+                insertAt: propsStart + 1,
+            });
+        }
+    }
+
+    let result = code;
+    for (let i = injections.length - 1; i >= 0; i--) {
+        const inj = injections[i];
+        const pos = getPosition(code, inj.callStart);
+        const attrs =
+            ` 'data-oobee-path': "${escapedPath}",` +
+            ` 'data-oobee-line': "${pos.line}",` +
+            ` 'data-oobee-column': "${pos.column}",`;
+
+        if (inj.type === 'replace') {
+            result =
+                result.slice(0, inj.replaceStart) +
+                `{${attrs} }` +
+                result.slice(inj.replaceEnd);
+        } else {
+            result =
+                result.slice(0, inj.insertAt) +
+                attrs +
+                result.slice(inj.insertAt);
+        }
+    }
+
     return result;
 }
 
