@@ -4,6 +4,7 @@
   "type": "module",
   "main": "index.cjs",
   "module": "index.js",
+  "types": "index.d.ts",
   "description": "Automatic source location tracking for DOM elements across multiple build tools (Vite, Webpack, esbuild, Rollup, Angular, Next.js)",
   "keywords": [
     "vite",
@@ -39,6 +40,7 @@
   "files": [
     "index.js",
     "index.cjs",
+    "index.d.ts",
     "core/",
     "adapters/",
     "README.md",
@@ -46,45 +48,55 @@
   ],
   "exports": {
     ".": {
+      "types": "./index.d.ts",
       "import": "./index.js",
       "require": "./index.cjs",
       "default": "./index.js"
     },
     "./adapters/webpack": {
+      "types": "./adapters/webpack.d.ts",
       "import": "./adapters/webpack.js",
       "require": "./adapters/webpack.cjs",
       "default": "./adapters/webpack.cjs"
     },
     "./adapters/next": {
+      "types": "./adapters/next.d.ts",
       "import": "./adapters/next.js",
       "require": "./adapters/next.cjs",
       "default": "./adapters/next.cjs"
     },
     "./adapters/esbuild": {
+      "types": "./adapters/esbuild.d.ts",
       "import": "./adapters/esbuild.js",
       "require": "./adapters/esbuild.cjs"
     },
     "./adapters/rollup": {
+      "types": "./adapters/rollup.d.ts",
       "import": "./adapters/rollup.js",
       "require": "./adapters/rollup.cjs"
     },
     "./adapters/angular": {
+      "types": "./adapters/angular.d.ts",
       "import": "./adapters/angular.js",
       "require": "./adapters/angular.cjs"
     },
     "./adapters/vite": {
+      "types": "./adapters/vite.d.ts",
       "import": "./adapters/vite.js",
       "require": "./adapters/vite.cjs"
     },
     "./core/transformer": {
+      "types": "./core/transformer.d.ts",
       "import": "./core/transformer.js",
       "require": "./core/transformer.cjs"
     },
     "./core/options": {
+      "types": "./core/options.d.ts",
       "import": "./core/options.js",
       "require": "./core/options.cjs"
     },
     "./core/utils": {
+      "types": "./core/utils.d.ts",
       "import": "./core/utils.js",
       "require": "./core/utils.cjs"
     }
