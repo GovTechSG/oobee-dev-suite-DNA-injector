@@ -69,7 +69,7 @@ import { oobeeVitePlugin } from "@govtechsg/oobee-genome/adapters/vite";
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
-  plugins: [react(),oobeeVitePlugin({ verbose: true })],
+  plugins: [oobeeVitePlugin({ verbose: true }), react()],
 });
 ```
 
