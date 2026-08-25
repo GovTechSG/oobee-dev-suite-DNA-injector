@@ -69,7 +69,7 @@ import { oobeeVitePlugin } from "@govtechsg/oobee-genome/adapters/vite";
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
-  plugins: [react(),oobeeVitePlugin({ verbose: true })],
+  plugins: [oobeeVitePlugin({ verbose: true }), react()],
 });
 ```
 
@@ -369,8 +369,50 @@ Once you've set up oobee-genome, verify your workflow:
 - [ ] You have a dev-only config file (`vite.config.oobee.ts`, `webpack.config.oobee.js`, etc.)
 - [ ] Your `package.json` has both `dev` and `dev:oobee` scripts
 - [ ] `npm run dev:oobee` starts dev server with @govtechsg/oobee-genome enabled
+- [ ] Your local page contains `data-oobee-*` attributes when inspected in browser DevTools
+- [ ] You can scan the local URL from the Oobee Dev Suite VS Code extension
 - [ ] `npm run build` uses your original production config (without @govtechsg/oobee-genome)
 - [ ] You never commit dev config files or changes to production configs
+
+### Verify DNA Attributes on Localhost
+
+Before starting a scan, confirm that oobee-genome is actually injecting source-location metadata into your running local app.
+
+1. Start your dev server with the oobee config:
+
+   ```bash
+   npm run dev:oobee
+   ```
+
+2. Open the local URL in your browser, for example:
+
+   ```text
+   http://localhost:5173
+   ```
+
+3. Open browser DevTools, go to the **Elements** tab, and inspect an element from your page.
+
+4. Confirm the element contains attributes like these:
+
+   ```html
+   <input
+     data-oobee-path="/path/to/project/src/App.tsx"
+     data-oobee-line="25"
+     data-oobee-column="17"
+   />
+   ```
+
+   You should see:
+
+   - `data-oobee-path`: the source file path
+   - `data-oobee-line`: the original source line number
+   - `data-oobee-column`: the original source column number
+
+   ![Browser DevTools showing data-oobee source-location attributes](docs/images/verify-dna-attributes-devtools.png)
+
+5. After confirming the attributes are present, return to your code editor, open the **Oobee Dev Suite** VS Code extension, and run a render scan against the same local URL.
+
+   ![Oobee Dev Suite extension icon in the VS Code activity bar](docs/images/open-oobee-dev-suite-extension.png)
 
 **Rule:** If you see @govtechsg/oobee-genome in your built/deployed code, you used the wrong config. Always use `npm run build` for production.
 
