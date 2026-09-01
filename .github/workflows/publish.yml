@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Git tag or ref to publish (e.g. 2.0.6). The commit at this ref will be published; its package.json version is what lands on npm.'
+        description: 'Branch or commit SHA to publish from (e.g. master). The package.json version in oobee-genome/ is what lands on npm.'
         required: true
         type: string
 permissions:
@@ -15,11 +15,11 @@ jobs:
       run:
         working-directory: oobee-genome
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.release_tag }}
 
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
           node-version: '22.x'
           registry-url: 'https://registry.npmjs.org'
