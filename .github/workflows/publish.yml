@@ -1,0 +1,43 @@
+name: Publish Package to npmjs
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Git tag or ref to publish (e.g. 2.0.6). The commit at this ref will be published; its package.json version is what lands on npm.'
+        required: true
+        type: string
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: oobee-genome
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ inputs.release_tag }}
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '22.x'
+          registry-url: 'https://registry.npmjs.org'
+
+      - run: npm ci
+        continue-on-error: false
+
+      - name: Create and push git tags
+        working-directory: ${{ github.workspace }}
+        run: |
+          VERSION=$(node -p "require('./oobee-genome/package.json').version")
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -af "${VERSION}" -m "Version ${VERSION}"
+          git push origin "${VERSION}" --force
+          git tag -af "latest" -m "Latest release ${VERSION}"
+          git push origin "latest" --force
+
+      - run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

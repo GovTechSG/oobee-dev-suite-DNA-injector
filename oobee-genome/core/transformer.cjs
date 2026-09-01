@@ -165,9 +165,9 @@ function injectDNA(code, filePath, options = {}) {
     // ── Step 2: find JSX/HTML opening tags ────────────────────────────────
     // Regex anatomy:
     //
-    //   (?<![>\w])           Negative lookbehind — the character immediately
+    //   (?<![\w])            Negative lookbehind — the character immediately
     //                        before `<` must NOT be a word character (a-z, A-Z,
-    //                        0-9, _) or `>`. This eliminates TypeScript generics
+    //                        0-9, _). This eliminates TypeScript generics
     //                        written directly after an identifier:
     //                          useState<T>   ← `e` before `<` → skipped ✓
     //                          Array<string> ← `y` before `<` → skipped ✓
@@ -188,7 +188,7 @@ function injectDNA(code, filePath, options = {}) {
     //                          <MyComp key=… → followed by ` `  ✓
     //                        Anything else (`,`, `(`, another letter) means
     //                        this is a TypeScript generic, not a tag.
-    const regex = /(?<![>\w])<([A-Z][a-zA-Z0-9\.]*|[a-z][a-z0-9\-]*)(?=[\s>/])/g;
+    const regex = /(?<![\w])<([A-Z][a-zA-Z0-9\.]*|[a-z][a-z0-9\-]*)(?=[\s>/])/g;
 
     // Collect every injection site.
     // The offsets come from the MASKED string, but because the mask preserves
