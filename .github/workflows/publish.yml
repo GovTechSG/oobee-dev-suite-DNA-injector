@@ -23,6 +23,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22.x'
+          registry-url: 'https://registry.npmjs.org'
 
       - run: npm ci
         continue-on-error: false
@@ -38,4 +39,9 @@ jobs:
           git tag -af "latest" -m "Latest release ${VERSION}"
           git push origin "latest" --force
 
-      - run: npm publish --provenance --access public
+      - name: Publish to npm
+        working-directory: ${{ github.workspace }}
+        run: npm publish --provenance --access public oobee-genome/
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
