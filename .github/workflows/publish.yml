@@ -39,4 +39,4 @@ jobs:
           git tag -af "latest" -m "Latest release ${VERSION}"
           git push origin "latest" --force
 
-      - run: npm publish --provenance
+      - run: npm publish --provenance --access public
