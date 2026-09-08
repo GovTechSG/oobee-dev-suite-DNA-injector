@@ -26,6 +26,30 @@ function getSourcePath(filePath) {
     return resolve(cleanPath);
 }
 
+// HTML attribute-value escape. Used when splicing the source-file path into a
+// JSX/HTML attribute (`data-oobee-path="..."`). Backslash escaping is inert in
+// HTML — an attacker-controlled path like `foo" onload=alert(1) x="` would
+// break out of the attribute if we did the JS-style backslash escape. We must
+// entity-encode `&`, `<`, `>`, and `"` so the parsed attribute value equals
+// the original path and no additional attributes materialize.
+function encodeHtmlAttr(s) {
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+// JS string-literal escape. Used when splicing the source-file path into a
+// JavaScript string in generated code (`'data-oobee-path': "..."`). Manual
+// double-quote escaping is not enough — a path containing `\` + `"` becomes
+// `\\"` which terminates the string. JSON.stringify handles backslashes,
+// quotes, control characters, and non-BMP correctly and returns the value
+// wrapped in double quotes.
+function encodeJsString(s) {
+    return JSON.stringify(String(s));
+}
+
 /**
  * Produces a "shadow" copy of the source file where every TypeScript
  * type-declaration region is replaced with plain spaces.
@@ -151,7 +175,12 @@ function injectDNA(code, filePath, options = {}) {
     if (excludePatterns.some(pattern => pattern.test(filePath))) return code;
 
     const sourcePath = getSourcePath(filePath);
-    const escapedPath = sourcePath.replace(/"/g, '\\"');
+    // Two different escape contexts: the JSX/HTML injector splices into an
+    // attribute value (needs entity encoding), the createElement injector
+    // splices into a JS string literal (needs JSON escaping). See the
+    // encoders above for why manual `\"`-only escaping is broken in both.
+    const attrEncodedPath = encodeHtmlAttr(sourcePath);
+    const jsEncodedPath = encodeJsString(sourcePath);
 
     // ── Step 1: mask ──────────────────────────────────────────────────────
     // Build a shadow copy of the source where every TypeScript type-declaration
@@ -223,7 +252,7 @@ function injectDNA(code, filePath, options = {}) {
     for (let i = injections.length - 1; i >= 0; i--) {
         const { offset, tagName } = injections[i];
         const pos = getPosition(code, offset); // line/col from the ORIGINAL source
-        const dnaAttrs = ` data-oobee-path="${escapedPath}" data-oobee-line="${pos.line}" data-oobee-column="${pos.column}"`;
+        const dnaAttrs = ` data-oobee-path="${attrEncodedPath}" data-oobee-line="${pos.line}" data-oobee-column="${pos.column}"`;
         const insertAt = offset + 1 + tagName.length;
         result = result.slice(0, insertAt) + dnaAttrs + result.slice(insertAt);
     }
@@ -236,7 +265,7 @@ function injectDNA(code, filePath, options = {}) {
     //
     // The JSX regex above finds nothing in such files, so we need a separate
     // pass that injects data-oobee-* into the props argument instead.
-    result = injectCreateElementCalls(result, escapedPath);
+    result = injectCreateElementCalls(result, jsEncodedPath);
 
     return result;
 }
@@ -258,7 +287,11 @@ function injectDNA(code, filePath, options = {}) {
  * Injection is applied in reverse offset order so earlier positions are not
  * shifted by later insertions — the same strategy used by the JSX pass.
  */
-function injectCreateElementCalls(code, escapedPath) {
+// `jsQuotedPath` MUST be a JSON.stringify'd path — that is, it already contains
+// its surrounding double quotes and is safe against backslash / control-char
+// / quote injection. See the earlier manual `\"`-only escape which allowed a
+// path of `.../foo\"; ...js` to break out of the string literal.
+function injectCreateElementCalls(code, jsQuotedPath) {
     const ceRegex =
         /\bReact\.createElement\(\s*(?:'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`|[A-Za-z_$][\w$.]*)\s*,\s*/g;
 
@@ -292,7 +325,7 @@ function injectCreateElementCalls(code, escapedPath) {
         const inj = injections[i];
         const pos = getPosition(code, inj.callStart);
         const attrs =
-            ` 'data-oobee-path': "${escapedPath}",` +
+            ` 'data-oobee-path': ${jsQuotedPath},` +
             ` 'data-oobee-line': "${pos.line}",` +
             ` 'data-oobee-column': "${pos.column}",`;
 

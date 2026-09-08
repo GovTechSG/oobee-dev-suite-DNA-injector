@@ -8,6 +8,14 @@ stages:
   - validate
   - publish
 
+# TODO(security/supply-chain): replace the mutable `:latest` tag with an
+# immutable `@sha256:<digest>` pin. The publish jobs below hold NPM_TOKEN and
+# AWS_* credentials, so a repointed :latest image lands attacker-controlled
+# tooling inside a credential-bearing job. Obtain the digest from the internal
+# registry (e.g. `crane digest registry.sgts.gitlab-dedicated.com/wog/gvt/wogaa/projects/cicd-images/alpine-3.19-node-22:latest`
+# or the GitLab registry UI) and change the reference to the form
+# `...alpine-3.19-node-22@sha256:<digest>`. Bump the digest deliberately at
+# each intended base-image refresh instead of drifting on :latest.
 image: registry.sgts.gitlab-dedicated.com/wog/gvt/wogaa/projects/cicd-images/alpine-3.19-node-22:latest
 
 variables:
@@ -44,7 +52,13 @@ workflow:
   allow_failure: false
   environment: production
   rules:
+    # `when: manual` on the tag rule so publishing to public npm still requires
+    # an explicit approval click even when a tag is pushed. Without this, any
+    # actor with tag-creation rights (a broader set than release managers)
+    # could trigger a supply-chain publish. Pair with GitLab protected tags to
+    # narrow who can create the triggering tag in the first place.
     - if: '$CI_COMMIT_TAG'
+      when: manual
     - if: $ENV == "prod"
       when: manual
 
@@ -61,7 +75,10 @@ publish_codeartifact:
     - pack_check
   before_script:
     - cd oobee-genome
-    - npm install
+    # `npm ci --ignore-scripts` in publish jobs so a malicious transitive
+    # dependency cannot run preinstall/install/postinstall/prepare scripts
+    # while AWS_* CodeArtifact publish credentials are present in the job env.
+    - npm ci --ignore-scripts
   script:
     - |
       : "Required variables: AWS_DEFAULT_REGION, AWS_ACCOUNT_ID, AWS_CODEARTIFACT_DOMAIN, AWS_CODEARTIFACT_REPOSITORY"
@@ -82,7 +99,10 @@ publish_npm:
     - pack_check
   before_script:
     - cd oobee-genome
-    - npm install
+    # `npm ci --ignore-scripts` in publish jobs so a malicious transitive
+    # dependency cannot run preinstall/install/postinstall/prepare scripts
+    # while NPM_TOKEN is present in the job env.
+    - npm ci --ignore-scripts
   script:
     - echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
     - npm config set @oobee:registry https://registry.npmjs.org/
