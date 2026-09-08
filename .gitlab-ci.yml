@@ -8,6 +8,14 @@ stages:
   - validate
   - publish
 
+# TODO(security/supply-chain): replace the mutable `:latest` tag with an
+# immutable `@sha256:<digest>` pin. The publish jobs below hold NPM_TOKEN and
+# AWS_* credentials, so a repointed :latest image lands attacker-controlled
+# tooling inside a credential-bearing job. Obtain the digest from the internal
+# registry (e.g. `crane digest registry.sgts.gitlab-dedicated.com/wog/gvt/wogaa/projects/cicd-images/alpine-3.19-node-22:latest`
+# or the GitLab registry UI) and change the reference to the form
+# `...alpine-3.19-node-22@sha256:<digest>`. Bump the digest deliberately at
+# each intended base-image refresh instead of drifting on :latest.
 image: registry.sgts.gitlab-dedicated.com/wog/gvt/wogaa/projects/cicd-images/alpine-3.19-node-22:latest
 
 variables:

@@ -28,6 +28,25 @@
     verbose: true
   };
 
+  // `devOnly:true` used to be a dead configuration flag — declared but never
+  // read, so this injector would happily stamp every DOM element and install a
+  // MutationObserver in production if the script tag was shipped by mistake.
+  // A dev-only debugging tool should not be a production information-disclosure
+  // liability. Enforce the flag against a small hostname allowlist that covers
+  // the standard local-dev cases (localhost, loopback IPs, *.local mDNS names)
+  // and lets integrators opt-in via `OobeeGenome.enable()` in prod if they
+  // truly know what they're doing.
+  function isDevEnvironment() {
+    const host = (window.location && window.location.hostname) || '';
+    if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1') return true;
+    if (host.endsWith('.localhost') || host.endsWith('.local')) return true;
+    return false;
+  }
+
+  function shouldRun() {
+    return CONFIG.enabled && (!CONFIG.devOnly || isDevEnvironment());
+  }
+
   // Only initialize once
   if (window.__oobeeGenomeLoaded) {
     return;
@@ -38,7 +57,7 @@
    * Inject oobee attributes into all HTML elements
    */
   function injectOobeeAttributes() {
-    if (!CONFIG.enabled) {
+    if (!shouldRun()) {
       return;
     }
 
@@ -186,16 +205,22 @@
     }
   };
 
-  // Initialize when DOM is ready
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
+  // Initialize when DOM is ready. Both the initial pass and the MutationObserver
+  // are gated by shouldRun() so devOnly is enforced end-to-end — if someone
+  // ships the script to prod by mistake, no elements get tagged and no observer
+  // is installed. `OobeeGenome.enable()` still bypasses this at runtime for
+  // developers who need to opt-in manually on a non-localhost host.
+  if (shouldRun()) {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => {
+        injectOobeeAttributes();
+        watchForDynamicElements();
+      });
+    } else {
+      // DOM already loaded
       injectOobeeAttributes();
       watchForDynamicElements();
-    });
-  } else {
-    // DOM already loaded
-    injectOobeeAttributes();
-    watchForDynamicElements();
+    }
   }
 
   if (CONFIG.verbose) {
