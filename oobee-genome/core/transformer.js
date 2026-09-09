@@ -3,16 +3,44 @@ import { resolve, relative, sep } from 'path';
 /**
  * Returns the 1-based line and column for a character at `index` inside `str`.
  *
- * Strategy: slice everything up to `index`, split on newlines.
- * The number of resulting segments = line number.
- * The length of the last segment = column (characters after the last newline).
+ * Public API — external callers still call this directly, so it must
+ * work standalone. The old implementation allocated `str.substring(0,index)`
+ * plus a `split('\n')` on every call, giving O(str.length) time+memory per
+ * lookup. When invoked once per JSX/HTML tag inside injectDNA that produced
+ * an overall O(N·L) ≈ O(L²) transform (asgard-0005 repro: 32k tags ≈ 4s,
+ * 64k ≈ 16s). Internal callers precompute a newline-offset array once via
+ * buildLineIndex() and call positionFromIndex() for O(log L) lookups; this
+ * top-level helper does the same on the fly so callers get the fast path
+ * without changing shape.
  */
 function getPosition(str, index) {
-    const lines = str.substring(0, index).split('\n');
-    return {
-        line: lines.length,
-        column: lines[lines.length - 1].length + 1
-    };
+    const nlOffsets = buildLineIndex(str);
+    return positionFromIndex(nlOffsets, index);
+}
+
+// O(L) single pass — collects every '\n' byte offset in the source.
+function buildLineIndex(str) {
+    const offsets = [];
+    for (let i = 0, len = str.length; i < len; i++) {
+        if (str.charCodeAt(i) === 10) offsets.push(i);
+    }
+    return offsets;
+}
+
+// O(log L) binary search over a precomputed newline-offset array. Returns
+// the same {line, column} shape as the original substring+split
+// implementation.
+function positionFromIndex(nlOffsets, index) {
+    let lo = 0;
+    let hi = nlOffsets.length;
+    while (lo < hi) {
+        const mid = (lo + hi) >>> 1;
+        if (nlOffsets[mid] < index) lo = mid + 1;
+        else hi = mid;
+    }
+    const line = lo + 1;
+    const lastNlBefore = lo === 0 ? -1 : nlOffsets[lo - 1];
+    return { line, column: index - lastNlBefore };
 }
 
 // HTML attribute-value escape. Used when splicing the source-file path into a
@@ -237,14 +265,29 @@ function injectDNA(code, filePath, options = {}) {
     //              insertAt
     //
     // After:  <div data-oobee-path="…" data-oobee-line="5" data-oobee-column="3" className="foo">
-    let result = code;
-    for (let i = injections.length - 1; i >= 0; i--) {
-        const { offset, tagName } = injections[i];
-        const pos = getPosition(code, offset); // line/col from the ORIGINAL source
+    // Precompute newline offsets once for the original source so each
+    // position lookup is O(log L) instead of the original O(L) — see
+    // asgard-0005. Positions are looked up against the ORIGINAL source so
+    // the line/column emitted matches what the developer wrote.
+    const codeLineIndex = buildLineIndex(code);
+    // Build the transformed source with a forward segment scan instead of
+    // the previous `result = result.slice(...) + attrs + result.slice(...)`
+    // splice, which allocated a full copy of the string on every match
+    // (O(N·L) — the *other* half of asgard-0005 that a pure getPosition fix
+    // wouldn't have addressed). `injections` is already in ascending offset
+    // order because it comes from a single regex.exec sweep.
+    const segments = [];
+    let cursor = 0;
+    for (const { offset, tagName } of injections) {
+        const pos = positionFromIndex(codeLineIndex, offset);
         const dnaAttrs = ` data-oobee-path="${attrEncodedPath}" data-oobee-line="${pos.line}" data-oobee-column="${pos.column}"`;
         const insertAt = offset + 1 + tagName.length; // right after <tagName
-        result = result.slice(0, insertAt) + dnaAttrs + result.slice(insertAt);
+        segments.push(code.slice(cursor, insertAt));
+        segments.push(dnaAttrs);
+        cursor = insertAt;
     }
+    segments.push(code.slice(cursor));
+    let result = segments.join('');
 
     // ── Second pass: React.createElement() calls ──────────────────────────
     // Plain .ts files cannot use JSX angle-bracket syntax — TypeScript only
@@ -341,11 +384,15 @@ function injectCreateElementCalls(code, jsQuotedPath) {
         // Variable / complex expression → skip, cannot safely inject
     }
 
-    // Apply in reverse order so each splice does not invalidate earlier offsets
-    let result = code;
-    for (let i = injections.length - 1; i >= 0; i--) {
-        const inj = injections[i];
-        const pos = getPosition(code, inj.callStart);
+    // O(L) newline scan + O(log L) per lookup and O(L + N) segment build —
+    // same asgard-0005 treatment as the JSX pass. `injections` was appended
+    // during a single regex.exec sweep so it is already in ascending
+    // callStart order; iterate forward and stream segments.
+    const codeLineIndex = buildLineIndex(code);
+    const segments = [];
+    let cursor = 0;
+    for (const inj of injections) {
+        const pos = positionFromIndex(codeLineIndex, inj.callStart);
         // Use quoted-string property names because data-* keys contain hyphens.
         // `jsQuotedPath` is already a JSON-encoded string literal (includes its
         // surrounding quotes), so it splices in directly without an extra pair.
@@ -355,21 +402,19 @@ function injectCreateElementCalls(code, jsQuotedPath) {
             ` 'data-oobee-column': "${pos.column}",`;
 
         if (inj.type === 'replace') {
-            // Replace null / undefined with a fresh props object
-            result =
-                result.slice(0, inj.replaceStart) +
-                `{${attrs} }` +
-                result.slice(inj.replaceEnd);
+            // Replace null / undefined with a fresh props object.
+            segments.push(code.slice(cursor, inj.replaceStart));
+            segments.push(`{${attrs} }`);
+            cursor = inj.replaceEnd;
         } else {
-            // Inject at the start of the existing object (trailing comma is valid JS)
-            result =
-                result.slice(0, inj.insertAt) +
-                attrs +
-                result.slice(inj.insertAt);
+            // Inject at the start of the existing object (trailing comma is valid JS).
+            segments.push(code.slice(cursor, inj.insertAt));
+            segments.push(attrs);
+            cursor = inj.insertAt;
         }
     }
-
-    return result;
+    segments.push(code.slice(cursor));
+    return segments.join('');
 }
 
 function shouldTransform(filePath, options = {}) {
