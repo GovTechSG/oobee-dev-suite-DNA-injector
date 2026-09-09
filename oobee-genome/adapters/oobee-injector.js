@@ -33,13 +33,18 @@
   // MutationObserver in production if the script tag was shipped by mistake.
   // A dev-only debugging tool should not be a production information-disclosure
   // liability. Enforce the flag against a small hostname allowlist that covers
-  // the standard local-dev cases (localhost, loopback IPs, *.local mDNS names)
-  // and lets integrators opt-in via `OobeeGenome.enable()` in prod if they
-  // truly know what they're doing.
+  // the standard local-dev cases only:
+  //   - localhost / loopback literals (127.0.0.1, ::1)
+  //   - RFC 6761 reserved `.localhost` suffix (always resolves to loopback)
+  // We deliberately do NOT match the `.local` (mDNS) suffix — those names
+  // are routinely used for real internal appliances / staging / intranet
+  // hosts (e.g. `dashboard.corp.local`), and stamping them with debug
+  // instrumentation would leak internal path/DOM structure to every
+  // authorized viewer. Non-local hosts must opt-in via `OobeeGenome.enable()`.
   function isDevEnvironment() {
     const host = (window.location && window.location.hostname) || '';
     if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1') return true;
-    if (host.endsWith('.localhost') || host.endsWith('.local')) return true;
+    if (host.endsWith('.localhost')) return true;
     return false;
   }
 
