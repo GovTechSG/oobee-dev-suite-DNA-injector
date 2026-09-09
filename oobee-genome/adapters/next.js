@@ -1,45 +1,13 @@
 import { mergeOptions } from '../core/options.js';
+import { isDevelopmentBuild } from '../core/environment.js';
 import { log } from '../core/utils.js';
 
-// Force-disable the DNA injector unless we can *positively* confirm we are
-// running a Next.js dev server. The transform embeds source-location
-// metadata (`data-oobee-*`) into every element it touches, which is useful
-// only in local development and undesirable in any shipped artifact.
-//
-// The old gate compared `process.env.NODE_ENV === 'production'` exactly and
-// treated everything else (including 'staging', 'Production', unset, or the
-// common CI pattern of NODE_ENV=development-for-devDeps-install) as "dev",
-// which failed *open* on the very common misconfigurations. It also honored
-// an unconditional `OOBEE_DNA_FORCE=1` override.
-//
-// The new logic fails *closed*: it only reports "dev" when NODE_ENV is the
-// exact literal 'development' (case-insensitive) AND no ambient
-// production-build signal is present (NEXT_PHASE=phase-production-build,
-// VERCEL_ENV=production/preview, CI=true). The webpack callback below has
-// its own, authoritative `options.dev` check as the real load-bearing gate.
-//
-// OOBEE_DNA_FORCE is now a *two-key* opt-in: it only takes effect when both
-// OOBEE_DNA_FORCE=1 AND OOBEE_DNA_FORCE_ACK=i-understand-this-leaks-paths
-// are set, so a forgotten env var in staging cannot silently re-enable the
-// injector without a deliberate acknowledgement.
-function isDevelopmentBuild() {
-    const nodeEnv = String(process.env.NODE_ENV || '').toLowerCase();
-    const nextPhase = String(process.env.NEXT_PHASE || '');
-    const vercelEnv = String(process.env.VERCEL_ENV || '').toLowerCase();
-
-    if (nextPhase === 'phase-production-build' || nextPhase === 'phase-production-server') return false;
-    if (vercelEnv === 'production' || vercelEnv === 'preview') return false;
-    if (process.env.CI === 'true' || process.env.CI === '1') return false;
-
-    if (
-        process.env.OOBEE_DNA_FORCE === '1' &&
-        process.env.OOBEE_DNA_FORCE_ACK === 'i-understand-this-leaks-paths'
-    ) {
-        return true;
-    }
-
-    return nodeEnv === 'development';
-}
+// The dev-build detector lives in core/environment.js so every bundler
+// adapter (next / rollup / webpack / angular) shares one fail-closed
+// definition and cannot drift out of sync. See that file for the exact
+// signals it consults and the two-key OOBEE_DNA_FORCE escape hatch.
+// The webpack callback below still re-checks webpack's authoritative
+// `options.dev` as the load-bearing final gate.
 
 function withOobeeDNA(nextConfig = {}, dnaOptions = {}) {
     const mergedOptions = mergeOptions(dnaOptions);

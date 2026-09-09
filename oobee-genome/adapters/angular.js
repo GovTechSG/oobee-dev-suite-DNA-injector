@@ -1,11 +1,17 @@
 import { injectDNA, shouldTransform } from '../core/transformer.js';
 import { mergeOptions } from '../core/options.js';
+import { isDevelopmentBuild } from '../core/environment.js';
 import { log, getRelativePath } from '../core/utils.js';
 
 function oobeeAngularPlugin(options = {}) {
     const mergedOptions = mergeOptions(options);
+    // Fail-closed dev gate — same rationale as rollup.js/webpack.js. Angular
+    // CLI does not expose a dev/prod signal to plugins reliably, so evaluate
+    // the environment ourselves before registering the webpack rule.
+    const enabledForDev = isDevelopmentBuild();
 
     return function angularWebpackPlugin(config) {
+        if (!enabledForDev) return config;
         if (!mergedOptions.enabled) return config;
 
         if (!config.module) config.module = {};
@@ -29,6 +35,7 @@ function oobeeAngularPlugin(options = {}) {
 function webpackLoader(source) {
     const mergedOptions = mergeOptions({});
 
+    if (!isDevelopmentBuild()) return source;
     if (!mergedOptions.enabled) return source;
 
     const filePath = this.resourcePath;
