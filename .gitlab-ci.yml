@@ -1,22 +1,33 @@
+# Pin the included CI config to an immutable commit SHA (or protected tag) in
+# the upstream oobee-web-infra project rather than the mutable `master` branch.
+# `.aws-vars` is spliced into publish_npm (holds NPM_TOKEN) and
+# publish_codeartifact (holds AWS_* CodeArtifact credentials), so anyone able
+# to push to that upstream default branch could otherwise alter what runs
+# inside our credential-bearing jobs without any review on this repository.
+#
+# The pinned value lives in the GitLab CI/CD variable OOBEE_WEB_INFRA_INCLUDE_REF
+# (protected + masked). To rotate: `git ls-remote https://...oobee-web-infra
+# refs/heads/master`, then update the variable in Settings > CI/CD > Variables.
+# The variable expansion in `ref:` is supported by GitLab >= 16.0.
 include:
   - project: "wog/gvt/wogaa/projects/oobee/oobee-web-infra"
-    ref: master
+    ref: $OOBEE_WEB_INFRA_INCLUDE_REF
     file:
       - "gitlab-template/vars/.aws-gitlab-keys.yml"
 
 stages:
+  - pin-check
   - validate
   - publish
 
-# TODO(security/supply-chain): replace the mutable `:latest` tag with an
-# immutable `@sha256:<digest>` pin. The publish jobs below hold NPM_TOKEN and
-# AWS_* credentials, so a repointed :latest image lands attacker-controlled
-# tooling inside a credential-bearing job. Obtain the digest from the internal
-# registry (e.g. `crane digest registry.sgts.gitlab-dedicated.com/wog/gvt/wogaa/projects/cicd-images/alpine-3.19-node-22:latest`
-# or the GitLab registry UI) and change the reference to the form
-# `...alpine-3.19-node-22@sha256:<digest>`. Bump the digest deliberately at
-# each intended base-image refresh instead of drifting on :latest.
-image: registry.sgts.gitlab-dedicated.com/wog/gvt/wogaa/projects/cicd-images/alpine-3.19-node-22:latest
+# Base image is pinned via the GitLab CI/CD variable BASE_IMAGE_REF (protected)
+# so DevOps can rotate the digest without touching this file. Set it to the
+# form `...alpine-3.19-node-22@sha256:<digest>` — never a mutable `:latest`
+# tag. Rotate by running `crane digest <image>:<intended-version>` against the
+# internal registry, then update the variable. The check_pin job below rejects
+# any value that still contains a mutable indicator so the safety-net catches
+# a misconfigured rotation.
+image: $BASE_IMAGE_REF
 
 variables:
   ENV: 
@@ -62,8 +73,43 @@ workflow:
     - if: $ENV == "prod"
       when: manual
 
+# Refuse to run any downstream stage if the pinned values look mutable. This
+# is a defense-in-depth check for the case where a DevOps rotation
+# accidentally sets OOBEE_WEB_INFRA_INCLUDE_REF back to `master`/`main` or
+# BASE_IMAGE_REF back to a `:latest`-style tag. The include: itself is
+# resolved before this job runs, but the credential-bearing publish jobs are
+# `needs`-gated on pack_check, which is `needs`-gated on this pin_check.
+pin_check:
+  stage: pin-check
+  script:
+    - |
+      set -eu
+      : "${OOBEE_WEB_INFRA_INCLUDE_REF:?OOBEE_WEB_INFRA_INCLUDE_REF must be set (Settings > CI/CD > Variables)}"
+      : "${BASE_IMAGE_REF:?BASE_IMAGE_REF must be set (Settings > CI/CD > Variables)}"
+      case "$OOBEE_WEB_INFRA_INCLUDE_REF" in
+        master|main|HEAD|develop|latest)
+          echo "Refusing mutable OOBEE_WEB_INFRA_INCLUDE_REF=$OOBEE_WEB_INFRA_INCLUDE_REF; pin to a commit SHA or protected tag." >&2
+          exit 1
+          ;;
+      esac
+      case "$BASE_IMAGE_REF" in
+        *:latest|*:main|*:master|*[!@]sha256:*)
+          echo "Refusing mutable BASE_IMAGE_REF=$BASE_IMAGE_REF; pin as ...@sha256:<digest>." >&2
+          exit 1
+          ;;
+      esac
+      case "$BASE_IMAGE_REF" in
+        *@sha256:[0-9a-f]*) : ;;
+        *)
+          echo "BASE_IMAGE_REF=$BASE_IMAGE_REF is not in @sha256:<digest> form." >&2
+          exit 1
+          ;;
+      esac
+
 pack_check:
   stage: validate
+  needs:
+    - pin_check
   before_script:
     - cd oobee-genome
   script:

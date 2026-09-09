@@ -1,4 +1,4 @@
-import { resolve } from 'path';
+import { resolve, relative, sep } from 'path';
 
 /**
  * Returns the 1-based line and column for a character at `index` inside `str`.
@@ -259,9 +259,25 @@ function injectDNA(code, filePath, options = {}) {
     return result;
 }
 
+// Emit a project-relative path (never the absolute build-host path). The
+// prior version returned resolve(cleanPath), which baked the OS username /
+// CI runner layout / internal directory structure into every `data-oobee-*`
+// attribute of the shipped bundle. Consumers only need enough information
+// to click through in an editor, so `path.relative(process.cwd(), …)` gives
+// them the module id relative to the project root while stripping the host
+// prefix. Escapes above the project root are collapsed to the file's
+// basename so a spurious ".." chain cannot re-leak parent segments.
 function getSourcePath(filePath) {
-    const cleanPath = filePath.split('?')[0];
-    return resolve(cleanPath);
+    const cleanPath = String(filePath).split('?')[0];
+    const absolute = resolve(cleanPath);
+    const projectRoot = resolve(process.cwd());
+    let rel = relative(projectRoot, absolute);
+    if (!rel) return '.';
+    if (rel.startsWith('..' + sep) || rel === '..') {
+        const parts = absolute.split(/[\\/]/);
+        rel = parts[parts.length - 1] || rel;
+    }
+    return rel;
 }
 
 /**
