@@ -100,5 +100,9 @@
       "import": "./core/utils.js",
       "require": "./core/utils.cjs"
     }
+  },
+  "dependencies": {
+    "@babel/parser": "^7.29.9",
+    "magic-string": "^0.30.19"
   }
 }
