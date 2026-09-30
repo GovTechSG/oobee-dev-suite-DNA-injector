@@ -4,7 +4,11 @@ import { resolve } from 'path';
 const require = createRequire(import.meta.url);
 const { parse } = require('@babel/parser');
 const MagicString = require('magic-string');
+const parse5 = require('parse5');
+const { parse: parseVueSfc } = require('@vue/compiler-sfc');
+const { parse: parseVueTemplate, ElementTypes } = require('@vue/compiler-dom');
 
+// Convert a character offset in the original source into 1-based line/column.
 function getPosition(str, index) {
     const lines = str.substring(0, index).split('\n');
     return {
@@ -13,6 +17,8 @@ function getPosition(str, index) {
     };
 }
 
+// Bundlers can append query strings to module IDs, e.g. App.tsx?t=123.
+// Strip those before resolving so parser dispatch sees the real extension.
 function getSourcePath(filePath) {
     const cleanPath = filePath.split('?')[0];
     return resolve(cleanPath);
@@ -20,7 +26,8 @@ function getSourcePath(filePath) {
 
 function getFileKind(sourcePath) {
     if (/\.(tsx|jsx|ts|js)$/.test(sourcePath)) return 'react';
-    if (/\.(vue|html)$/.test(sourcePath)) return 'legacy-markup';
+    if (/\.vue$/.test(sourcePath)) return 'vue';
+    if (/\.html$/.test(sourcePath)) return 'html';
     return 'unsupported';
 }
 
@@ -39,11 +46,6 @@ function parseJavaScriptLike(code, sourcePath) {
     });
 }
 
-// Walk the parsed AST from parent to child, running visitor(node) on each real
-// syntax node. Babel nodes carry a string "type" such as "JSXOpeningElement" or
-// "CallExpression"; those are the nodes Genome wants to inspect. Fields like
-// loc/start/end/comments are parser metadata, not child syntax, so we skip them
-// and only recurse into arrays or objects that can contain more AST nodes.
 function walk(node, visitor) {
     if (!node || typeof node !== 'object') return;
     if (typeof node.type === 'string') visitor(node);
@@ -150,6 +152,16 @@ function hasObjectDnaProperty(objectExpression, prefix) {
     });
 }
 
+function hasAttributeName(attributes, prefix) {
+    const wanted = new Set([
+        `${prefix}-path`,
+        `${prefix}-line`,
+        `${prefix}-column`
+    ]);
+
+    return attributes.some((attribute) => wanted.has(attribute && attribute.name));
+}
+
 // Match React.createElement(...) calls in the AST. This intentionally accepts
 // only the dot form, not React['createElement'], to keep the transform narrow.
 function isReactCreateElementCall(node) {
@@ -162,6 +174,24 @@ function isReactCreateElementCall(node) {
         callee.object &&
         callee.object.type === 'Identifier' &&
         callee.object.name === 'React' &&
+        callee.property &&
+        callee.property.type === 'Identifier' &&
+        callee.property.name === 'createElement'
+    );
+}
+
+// Match document.createElement(...) calls so vanilla JS DOM creation can also
+// receive metadata. Only string tag arguments are handled by the caller.
+function isDocumentCreateElementCall(node) {
+    if (node.type !== 'CallExpression') return false;
+    const callee = node.callee;
+    return (
+        callee &&
+        callee.type === 'MemberExpression' &&
+        !callee.computed &&
+        callee.object &&
+        callee.object.type === 'Identifier' &&
+        callee.object.name === 'document' &&
         callee.property &&
         callee.property.type === 'Identifier' &&
         callee.property.name === 'createElement'
@@ -189,6 +219,8 @@ function isNullishProps(node) {
     return false;
 }
 
+// Build JSX/HTML-style attributes for insertion after a tag name:
+// <button data-oobee-path="..." data-oobee-line="..." ...>
 function getJsxAttributes(code, offset, escapedPath, prefix) {
     const pos = getPosition(code, offset);
     return (
@@ -198,6 +230,8 @@ function getJsxAttributes(code, offset, escapedPath, prefix) {
     );
 }
 
+// Build object-literal props for React.createElement:
+// { 'data-oobee-path': "...", 'data-oobee-line': "...", ... }
 function getObjectAttributes(code, offset, escapedPath, prefix) {
     const pos = getPosition(code, offset);
     return (
@@ -207,14 +241,17 @@ function getObjectAttributes(code, offset, escapedPath, prefix) {
     );
 }
 
-// React-family transformer for Next/Vite/React source files.
-// This pass is intentionally AST-based: JSX tags and React.createElement calls
-// are different syntax nodes, so we can inject only into real host elements and
-// avoid TypeScript generics or plain text that merely looks like markup. JSX
-// component tags are skipped by shouldInjectJsxElement; React.createElement is
-// handled only when the first argument is a string tag. Edits are collected as
-// source offsets and applied from right to left with MagicString so earlier
-// offsets stay stable.
+// Build imperative DOM metadata setters for document.createElement wrappers.
+// JSON.stringify handles escaping for JavaScript string literals.
+function getSetAttributeStatements(code, offset, sourcePath, prefix) {
+    const pos = getPosition(code, offset);
+    return [
+        `__oobeeEl.setAttribute(${JSON.stringify(`${prefix}-path`)}, ${JSON.stringify(sourcePath)});`,
+        `__oobeeEl.setAttribute(${JSON.stringify(`${prefix}-line`)}, ${JSON.stringify(String(pos.line))});`,
+        `__oobeeEl.setAttribute(${JSON.stringify(`${prefix}-column`)}, ${JSON.stringify(String(pos.column))});`
+    ].join(' ');
+}
+
 function injectReactDNA(code, sourcePath, options) {
     const ast = parseJavaScriptLike(code, sourcePath);
     const escapedPath = sourcePath.replace(/"/g, '\\"');
@@ -243,31 +280,52 @@ function injectReactDNA(code, sourcePath, options) {
         //   React.createElement('div', { className: 'box' }) -> insert attrs into existing props
         //   React.createElement(Button, null) -> skip because Button is a component
         // "attrs" is the generated data-oobee properties string.
-        if (!isReactCreateElementCall(node)) return;
+        if (isReactCreateElementCall(node)) {
+            const tagName = getStringLiteralValue(node.arguments[0]);
+            if (!tagName || options.blacklist.includes(tagName)) return;
 
-        const tagName = getStringLiteralValue(node.arguments[0]);
-        if (!tagName || options.blacklist.includes(tagName)) return;
+            const props = node.arguments[1];
+            const attrs = getObjectAttributes(code, node.start, escapedPath, prefix);
 
-        const props = node.arguments[1];
-        const attrs = getObjectAttributes(code, node.start, escapedPath, prefix);
+            if (!props) {
+                edits.push({
+                    start: node.arguments[0].end,
+                    end: node.arguments[0].end,
+                    content: `, {${attrs} }`
+                });
+            } else if (isNullishProps(props)) {
+                edits.push({
+                    start: props.start,
+                    end: props.end,
+                    content: `{${attrs} }`
+                });
+            } else if (props.type === 'ObjectExpression' && !hasObjectDnaProperty(props, prefix)) {
+                edits.push({
+                    start: props.start + 1,
+                    end: props.start + 1,
+                    content: attrs
+                });
+            }
+            return;
+        }
 
-        if (!props) {
+        // document.createElement is the vanilla JS path for code-created DOM:
+        //   document.createElement('button') -> create element, set attrs, return it
+        //   container.appendChild(document.createElement('div')) -> still works inline
+        // Genome wraps the call in an IIFE so the expression keeps returning the
+        // created element after data-oobee attributes are applied with setAttribute.
+        if (isDocumentCreateElementCall(node)) {
+            const tagName = getStringLiteralValue(node.arguments[0]);
+            if (!tagName || options.blacklist.includes(tagName)) return;
+
+            const originalCall = code.slice(node.start, node.end);
             edits.push({
-                start: node.arguments[0].end,
-                end: node.arguments[0].end,
-                content: `, {${attrs} }`
-            });
-        } else if (isNullishProps(props)) {
-            edits.push({
-                start: props.start,
-                end: props.end,
-                content: `{${attrs} }`
-            });
-        } else if (props.type === 'ObjectExpression' && !hasObjectDnaProperty(props, prefix)) {
-            edits.push({
-                start: props.start + 1,
-                end: props.start + 1,
-                content: attrs
+                start: node.start,
+                end: node.end,
+                content:
+                    `(() => { const __oobeeEl = ${originalCall}; ` +
+                    `${getSetAttributeStatements(code, node.start, sourcePath, prefix)} ` +
+                    'return __oobeeEl; })()'
             });
         }
     });
@@ -288,25 +346,79 @@ function injectReactDNA(code, sourcePath, options) {
     return magic.toString();
 }
 
-function injectLegacyMarkupDNA(code, sourcePath, options) {
+// HTML transformer for standalone templates. parse5 gives source offsets for
+// real start tags, so the transform can skip comments/text and preserve layout.
+function injectHtmlDNA(code, sourcePath, options) {
+    const ast = parse5.parseFragment(code, { sourceCodeLocationInfo: true });
     const escapedPath = sourcePath.replace(/"/g, '\\"');
     const prefix = options.attributePrefix;
-    const regex = /<([a-z][a-z0-9\-]*)(?=[\s>/])/g;
     const edits = [];
-    let match;
 
-    while ((match = regex.exec(code)) !== null) {
-        const tagName = match[1];
-        if (options.blacklist.includes(tagName)) continue;
-        edits.push({
-            start: match.index + 1 + tagName.length,
-            content: getJsxAttributes(code, match.index, escapedPath, prefix)
-        });
+    function visit(node) {
+        if (node.tagName && node.sourceCodeLocation && node.sourceCodeLocation.startTag) {
+            const location = node.sourceCodeLocation.startTag;
+            const attrs = Object.keys(location.attrs || {}).map((name) => ({ name }));
+
+            if (!options.blacklist.includes(node.tagName) && !hasAttributeName(attrs, prefix)) {
+                edits.push({
+                    start: location.startOffset + 1 + node.tagName.length,
+                    content: getJsxAttributes(code, location.startOffset, escapedPath, prefix)
+                });
+            }
+        }
+
+        for (const child of node.childNodes || []) visit(child);
     }
+
+    for (const child of ast.childNodes || []) visit(child);
 
     if (edits.length === 0) return code;
 
     const magic = new MagicString(code);
+    // Apply edits from right to left because all offsets refer to the original
+    // code; changing later text first keeps earlier coordinates valid.
+    for (const edit of edits.sort((a, b) => b.start - a.start)) {
+        magic.appendLeft(edit.start, edit.content);
+    }
+    return magic.toString();
+}
+
+// Vue single-file component transformer. Only the <template> block is edited;
+// script/style content is left alone. Vue component tags are currently treated
+// by the Vue compiler's element kind, while normal rendered elements are tagged.
+function injectVueDNA(code, sourcePath, options) {
+    const parsed = parseVueSfc(code);
+    const template = parsed.descriptor && parsed.descriptor.template;
+    if (!template) return code;
+
+    const ast = parseVueTemplate(template.content, { comments: true });
+    const escapedPath = sourcePath.replace(/"/g, '\\"');
+    const prefix = options.attributePrefix;
+    const baseOffset = template.loc.start.offset;
+    const edits = [];
+
+    function visit(node) {
+        if (node.type === 1 && node.tagType === ElementTypes.ELEMENT) {
+            const attrs = (node.props || []).map((prop) => ({ name: prop.name }));
+            if (!options.blacklist.includes(node.tag) && !hasAttributeName(attrs, prefix)) {
+                const absoluteStart = baseOffset + node.loc.start.offset;
+                edits.push({
+                    start: absoluteStart + 1 + node.tag.length,
+                    content: getJsxAttributes(code, absoluteStart, escapedPath, prefix)
+                });
+            }
+        }
+
+        for (const child of node.children || []) visit(child);
+    }
+
+    for (const child of ast.children || []) visit(child);
+
+    if (edits.length === 0) return code;
+
+    const magic = new MagicString(code);
+    // Apply edits from right to left because all offsets refer to the original
+    // code; changing later text first keeps earlier coordinates valid.
     for (const edit of edits.sort((a, b) => b.start - a.start)) {
         magic.appendLeft(edit.start, edit.content);
     }
@@ -337,8 +449,12 @@ function injectDNA(code, filePath, options = {}) {
         return injectReactDNA(code, sourcePath, mergedOptions);
     }
 
-    if (kind === 'legacy-markup') {
-        return injectLegacyMarkupDNA(code, sourcePath, mergedOptions);
+    if (kind === 'html') {
+        return injectHtmlDNA(code, sourcePath, mergedOptions);
+    }
+
+    if (kind === 'vue') {
+        return injectVueDNA(code, sourcePath, mergedOptions);
     }
 
     return code;
