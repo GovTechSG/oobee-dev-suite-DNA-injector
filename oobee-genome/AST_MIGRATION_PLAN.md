@@ -33,6 +33,25 @@ Proposed: detect framework → extract render regions → AST/regex on regions �
 
 ---
 
+## Security invariants (carried over from the regex transformer)
+
+The sketches below predate the hardening on `master`. The shipped AST transformer
+keeps every one of these, and `test/` asserts them:
+
+- **No absolute paths.** `data-oobee-path` is project-relative (`src/App.tsx`), and
+  files outside `process.cwd()` collapse to their basename. Dev Suite matches by
+  exact path or `/`-suffix, so relative paths resolve.
+- **Context-correct escaping.** HTML/JSX attributes are entity-encoded (`&`, `<`, `>`,
+  `"`) and JavaScript strings use `JSON.stringify`. The `.replace(/"/g, '\\"')` shown
+  below is **not** used: backslashes are inert in HTML and JSX attributes, so a file
+  named `x" onload="…` would break out.
+- **Validated `attributePrefix`** (`/^[a-z][a-z0-9-]*$/i`), because it is spliced raw.
+- **Linear position lookups**: a newline index is built once per file, then binary-searched.
+- **Dev-only adapters**: `core/environment.*` gates webpack, rollup, esbuild, angular
+  and next. Vite uses `apply: 'serve'`.
+
+---
+
 ## Phase 0 — Dependency
 
 ### Package to add

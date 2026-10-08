@@ -2,17 +2,29 @@ const { injectDNA, shouldTransform } = require('../core/transformer.cjs');
 const { mergeOptions } = require('../core/options.cjs');
 const { log } = require('../core/utils.cjs');
 const fs = require('fs');
+const { isDevelopmentBuild } = require('../core/environment.cjs');
+
+function getLoader(filePath) {
+    if (filePath.endsWith('.html')) return 'text';
+    if (filePath.endsWith('.ts')) return 'ts';
+    if (filePath.endsWith('.tsx')) return 'tsx';
+    if (filePath.endsWith('.jsx')) return 'jsx';
+    if (filePath.endsWith('.js')) return 'js';
+    return 'jsx';
+}
 
 function oobeeEsbuildPlugin(options = {}) {
     const mergedOptions = mergeOptions(options);
+    // esbuild has no dev/prod signal; use the shared fail-closed gate.
+    const enabledForDev = isDevelopmentBuild();
 
     return {
         name: 'oobee-injector',
         setup(build) {
             build.onLoad(
-                { filter: /\.(tsx|jsx|vue|html)$/ },
+                { filter: /\.(ts|tsx|js|jsx|vue|html)$/ },
                 async (args) => {
-                    if (!mergedOptions.enabled) return null;
+                    if (!enabledForDev || !mergedOptions.enabled) return null;
                     if (!shouldTransform(args.path, mergedOptions)) return null;
 
                     log(`Transforming (esbuild): ${args.path}`, mergedOptions.verbose);
@@ -23,7 +35,7 @@ function oobeeEsbuildPlugin(options = {}) {
 
                         return {
                             contents: transformed,
-                            loader: args.path.endsWith('.html') ? 'text' : 'jsx'
+                            loader: getLoader(args.path)
                         };
                     } catch (error) {
                         console.error(`[oobee-genome] Error transforming ${args.path}:`, error);

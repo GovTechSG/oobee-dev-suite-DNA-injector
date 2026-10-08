@@ -32,7 +32,7 @@
     "url": "https://github.com/GovTechSG/oobee-dev-suite-DNA-injector.git"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --test test/*.test.mjs",
     "pack:check": "npm pack --dry-run",
     "pack:tarball": "npm pack",
     "publish:s3": "node s3-publish.js"
@@ -100,5 +100,12 @@
       "import": "./core/utils.js",
       "require": "./core/utils.cjs"
     }
+  },
+  "dependencies": {
+    "@babel/parser": "^7.29.9",
+    "@vue/compiler-dom": "^3.5.43",
+    "@vue/compiler-sfc": "^3.5.43",
+    "magic-string": "^0.30.19",
+    "parse5": "^6.0.1"
   }
 }
