@@ -3,23 +3,34 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Git tag or ref to publish (e.g. 2.0.6). The commit at this ref will be published; its package.json version is what lands on npm.'
+        description: 'Branch or commit SHA to publish from (e.g. master). The package.json version in oobee-genome/ is what lands on npm.'
         required: true
         type: string
 permissions:
   contents: write
+  id-token: write
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # Pin the runner to a specific Ubuntu version rather than the mutable
+    # `ubuntu-latest` label. `ubuntu-latest` silently rolls forward whenever
+    # GitHub promotes a new image, which changes the tooling baseline (Node,
+    # openssl, curl, git) underneath a credential-bearing publish job.
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: oobee-genome
     steps:
-      - uses: actions/checkout@v3
+      # Third-party GitHub Actions are pinned to a full commit SHA rather than
+      # the mutable `@v4` tag. This job holds NPM_TOKEN and `id-token: write`
+      # for provenance signing, so a repointed `v4` tag would land
+      # attacker-controlled JavaScript inside a credential-bearing step.
+      # Update the SHA + trailing version comment together at each intended
+      # action refresh — never bump the version comment on its own.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ inputs.release_tag }}
 
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22.x'
           registry-url: 'https://registry.npmjs.org'
@@ -38,6 +49,9 @@ jobs:
           git tag -af "latest" -m "Latest release ${VERSION}"
           git push origin "latest" --force
 
-      - run: npm publish
+      - name: Publish to npm
+        working-directory: ${{ github.workspace }}
+        run: npm publish --provenance --access public oobee-genome/
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
