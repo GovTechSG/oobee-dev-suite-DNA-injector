@@ -1,24 +1,21 @@
-import { resolve, relative, sep } from 'path';
+import { createRequire } from 'module';
+import { relative, resolve, sep } from 'path';
 
-/**
- * Returns the 1-based line and column for a character at `index` inside `str`.
- *
- * Public API — external callers still call this directly, so it must
- * work standalone. The old implementation allocated `str.substring(0,index)`
- * plus a `split('\n')` on every call, giving O(str.length) time+memory per
- * lookup. When invoked once per JSX/HTML tag inside injectDNA that produced
- * an overall O(N·L) ≈ O(L²) transform (asgard-0005 repro: 32k tags ≈ 4s,
- * 64k ≈ 16s). Internal callers precompute a newline-offset array once via
- * buildLineIndex() and call positionFromIndex() for O(log L) lookups; this
- * top-level helper does the same on the fly so callers get the fast path
- * without changing shape.
- */
+const require = createRequire(import.meta.url);
+const { parse } = require('@babel/parser');
+const MagicString = require('magic-string');
+const parse5 = require('parse5');
+const { parse: parseVueSfc } = require('@vue/compiler-sfc');
+const { parse: parseVueTemplate, ElementTypes } = require('@vue/compiler-dom');
+
+// Convert a character offset in the original source into 1-based line/column.
+// All generated metadata uses positions from the unmodified input code.
 function getPosition(str, index) {
-    const nlOffsets = buildLineIndex(str);
-    return positionFromIndex(nlOffsets, index);
+    return positionFromIndex(buildLineIndex(str), index);
 }
 
-// O(L) single pass — collects every '\n' byte offset in the source.
+// Per-tag substring+split made the transform O(tags x length); large files
+// could stall the dev server. Index newlines once, then binary-search.
 function buildLineIndex(str) {
     const offsets = [];
     for (let i = 0, len = str.length; i < len; i++) {
@@ -27,9 +24,6 @@ function buildLineIndex(str) {
     return offsets;
 }
 
-// O(log L) binary search over a precomputed newline-offset array. Returns
-// the same {line, column} shape as the original substring+split
-// implementation.
 function positionFromIndex(nlOffsets, index) {
     let lo = 0;
     let hi = nlOffsets.length;
@@ -38,17 +32,37 @@ function positionFromIndex(nlOffsets, index) {
         if (nlOffsets[mid] < index) lo = mid + 1;
         else hi = mid;
     }
-    const line = lo + 1;
     const lastNlBefore = lo === 0 ? -1 : nlOffsets[lo - 1];
-    return { line, column: index - lastNlBefore };
+    return { line: lo + 1, column: index - lastNlBefore };
 }
 
-// HTML attribute-value escape. Used when splicing the source-file path into a
-// JSX/HTML attribute (`data-oobee-path="..."`). Backslash escaping is inert in
-// HTML — an attacker-controlled path like `foo" onload=alert(1) x="` would
-// break out of the attribute if we did the JS-style backslash escape. We must
-// entity-encode `&`, `<`, `>`, and `"` so the parsed attribute value equals
-// the original path and no additional attributes materialize.
+function getRelativePath(filePath, rootPath = process.cwd()) {
+    return relative(rootPath, filePath);
+}
+
+// Bundlers can append query strings to module IDs, e.g. App.tsx?t=123.
+// Strip those before resolving so parser dispatch sees the real extension.
+function getCleanSourcePath(filePath) {
+    return resolve(String(filePath).split('?')[0]);
+}
+
+// The emitted path is project-relative so the OS username / CI layout is
+// never baked into the DOM. Files outside the project collapse to their
+// basename so a `..` chain cannot re-leak parent directories. Dev Suite
+// resolves these relative paths against the workspace root.
+function getEmittedPath(absolutePath) {
+    const rel = relative(resolve(process.cwd()), absolutePath);
+    if (!rel) return '.';
+    if (rel === '..' || rel.startsWith('..' + sep) || resolve(rel) === rel) {
+        const parts = absolutePath.split(/[\\/]/);
+        return parts[parts.length - 1] || rel;
+    }
+    return rel.split(sep).join('/');
+}
+
+// Paths are attacker-influenced (a cloned repo can name a file
+// `x" onload=alert(1).tsx`). Backslash escaping is inert in HTML and JSX
+// attribute strings, so entity-encode; both decode entities back to the path.
 function encodeHtmlAttr(s) {
     return String(s)
         .replace(/&/g, '&amp;')
@@ -57,366 +71,486 @@ function encodeHtmlAttr(s) {
         .replace(/"/g, '&quot;');
 }
 
-// JS string-literal escape. Used when splicing the source-file path into a
-// JavaScript string in generated code (`'data-oobee-path': "..."`). Manual
-// double-quote escaping is not enough — a path containing `\` + `"` becomes
-// `\\"` which terminates the string. JSON.stringify handles backslashes,
-// quotes, control characters, and non-BMP correctly and returns the value
-// wrapped in double quotes.
+// Generated JS string literal; handles backslashes, quotes and control chars.
 function encodeJsString(s) {
     return JSON.stringify(String(s));
 }
 
-/**
- * Produces a "shadow" copy of the source file where every TypeScript
- * type-declaration region is replaced with plain spaces.
- *
- * WHY THIS IS NEEDED
- * ──────────────────
- * The JSX injection regex looks for `<TagName` patterns. TypeScript uses
- * identical angle-bracket syntax for generic type parameters:
- *
- *   type Fn = <T>(x: T) => T          ← <T> is NOT a DOM element
- *   interface Props<T extends object>  ← <T extends…> is NOT a DOM element
- *
- * Without masking, the regex would inject `data-oobee-*` attributes into
- * those positions, producing invalid TypeScript that breaks compilation.
- *
- * THE POSITION-PRESERVATION CONTRACT
- * ────────────────────────────────────
- * `getPosition(code, offset)` derives line/column numbers by counting
- * characters in the original source. For its results to stay accurate, every
- * character position in the mask must map to the exact same position in the
- * original. We achieve this by:
- *
- *   • Replacing non-newline characters with spaces (same byte count).
- *   • Never touching newline characters (line count stays identical).
- *
- * So if `<T>` sits at character 342 in the original, it is replaced by `   `
- * (three spaces) at character 342 in the mask — and the regex simply won't
- * find a `<` there anymore.
- *
- * WHAT GETS MASKED
- * ────────────────
- * A line is the start of a type region when its leading (non-whitespace)
- * content matches one of:
- *
- *   type Foo = …              (type alias)
- *   export type Foo = …
- *   interface Foo { … }       (interface declaration)
- *   export interface Foo …
- *   declare …                 (ambient declaration)
- *   import type { … }         (type-only import)
- *   import type Foo from …
- *
- * HOW MULTI-LINE BLOCKS ARE HANDLED
- * ───────────────────────────────────
- * After spotting an opening line, we count `{` vs `}` to track brace depth.
- * While depth > 0 every subsequent line is also masked. When depth drops
- * back to 0 the closing brace was encountered and normal processing resumes.
- *
- * Example:
- *
- *   interface Props {        ← depth becomes 1  → masked
- *     name: string;          ← depth stays 1    → masked
- *     render: <T>() => T;    ← depth stays 1    → masked  (<T> hidden ✓)
- *   }                        ← depth becomes 0  → masked (last line of block)
- *   return <div className…>  ← depth is 0, not a type decl → NOT masked ✓
- */
-function maskTypeScriptRegions(code) {
-    const lines = code.split('\n');
-    const out = [];
-    let inBlock = false; // are we currently inside a multi-line type block?
-    let depth = 0;       // net unclosed `{` count inside the current block
+// The prefix is spliced raw into markup and code, so restrict it to a plain
+// attribute-name shape.
+function assertSafePrefix(prefix) {
+    if (typeof prefix !== 'string' || !/^[a-z][a-z0-9-]*$/i.test(prefix)) {
+        throw new Error(`[oobee-genome] invalid attributePrefix: ${JSON.stringify(prefix)}`);
+    }
+}
 
-    for (const line of lines) {
-        // trimStart so leading indentation is ignored when matching keywords
-        const trimmed = line.trimStart();
+// Pick the transformer from the resolved source path. "React" here means the
+// JavaScript-family parser path that handles JS/TS plus optional JSX syntax.
+function getFileKind(sourcePath) {
+    if (/\.(tsx|jsx|ts|js)$/.test(sourcePath)) return 'react';
+    if (/\.vue$/.test(sourcePath)) return 'vue';
+    if (/\.html$/.test(sourcePath)) return 'html';
+    return 'unsupported';
+}
 
-        if (!inBlock) {
-            // ── Detect the start of a TypeScript type-only declaration ──────
-            //
-            // Regex breakdown:
-            //   ^(?:export\s+)?          optional `export` keyword
-            //   (?:                      one of:
-            //     type\s+\w              `type X` — type alias
-            //     |interface\s+\w        `interface X` — interface
-            //     |declare\s+            `declare …` — ambient declaration
-            //   )
-            //
-            // Second pattern covers `import type { … }` and `import type Foo`
-            const isTypeDecl =
-                /^(?:export\s+)?(?:type\s+\w|interface\s+\w|declare\s+)/.test(trimmed) ||
-                /^import\s+type[\s{]/.test(trimmed);
+// Parse JavaScript/TypeScript source into a Babel AST. Plugins are selected by
+// extension so .ts understands types, .tsx understands types plus JSX, and .js
+// / .jsx can still support JSX where the framework allows it.
+function parseJavaScriptLike(code, sourcePath) {
+    const isTypeScript = /\.(ts|tsx)$/.test(sourcePath);
+    const canContainJsx = /\.(js|jsx|tsx)$/.test(sourcePath);
+    const plugins = [];
 
-            if (isTypeDecl) {
-                // Count brace balance on this opening line.
-                // If it opens a block (depth > 0) we must keep masking
-                // subsequent lines until the block closes.
-                depth = (line.match(/\{/g) || []).length
-                      - (line.match(/\}/g) || []).length;
-                if (depth > 0) inBlock = true; // block continues on next lines
+    if (isTypeScript) plugins.push('typescript');
+    if (canContainJsx) plugins.push('jsx');
 
-                // Replace every character with a space — but keep the same
-                // total length so downstream character offsets stay valid.
-                out.push(' '.repeat(line.length));
-            } else {
-                // Normal code — keep as-is so the regex can find JSX tags.
-                out.push(line);
+    return parse(code, {
+        sourceType: 'unambiguous',
+        allowReturnOutsideFunction: true,
+        plugins
+    });
+}
+
+// Walk the parsed AST from parent to child, running visitor(node) on each real
+// syntax node. Babel nodes carry a string "type" such as "JSXOpeningElement" or
+// "CallExpression"; those are the nodes Genome wants to inspect. Fields like
+// loc/start/end/comments are parser metadata, not child syntax, so we skip them
+// and only recurse into arrays or objects that can contain more AST nodes.
+function walk(node, visitor) {
+    if (!node || typeof node !== 'object') return;
+    if (typeof node.type === 'string') visitor(node);
+
+    for (const key of Object.keys(node)) {
+        // Babel nodes mix real syntax with parser metadata, e.g.
+        // {
+        //   type: 'JSXOpeningElement',
+        //   start: 0,
+        //   end: 5,
+        //   loc: { start: { line: 1, column: 0 }, end: { line: 1, column: 5 } },
+        //   name: { type: 'JSXIdentifier', name: 'div' },
+        //   attributes: []
+        // }
+        // Genome only follows child syntax such as name/attributes/body.
+        // Position, comment, and "extra" fields are useful metadata, but they
+        // are not code nodes that can contain JSX or createElement calls.
+        if (
+            key === 'loc' ||
+            key === 'start' ||
+            key === 'end' ||
+            key === 'leadingComments' ||
+            key === 'trailingComments' ||
+            key === 'innerComments' ||
+            key === 'extra'
+        ) {
+            continue;
+        }
+
+        const value = node[key];
+        if (Array.isArray(value)) {
+            for (const child of value) walk(child, visitor);
+        } else if (value && typeof value === 'object') {
+            walk(value, visitor);
+        }
+    }
+}
+
+// Normalize Babel's JSX name node into a string:
+// <div> -> "div", <Layout.Main> -> "Layout.Main", <svg:path> -> "svg:path".
+function getJsxName(node) {
+    if (!node) return null;
+    if (node.type === 'JSXIdentifier') return node.name;
+    if (node.type === 'JSXNamespacedName') {
+        const namespace = getJsxName(node.namespace);
+        const name = getJsxName(node.name);
+        return namespace && name ? `${namespace}:${name}` : null;
+    }
+    if (node.type === 'JSXMemberExpression') {
+        const object = getJsxName(node.object);
+        const property = getJsxName(node.property);
+        return object && property ? `${object}.${property}` : null;
+    }
+    return null;
+}
+
+// Component-like JSX is not guaranteed to forward arbitrary props to a DOM
+// element. Treat PascalCase and member names as components and skip them.
+function isComponentJsxName(nameNode, tagName) {
+    if (!tagName) return true;
+    if (nameNode.type === 'JSXMemberExpression') return true;
+    return /^[A-Z]/.test(tagName);
+}
+
+// Gatekeeper for JSX injection. Only host-like tags should receive attributes:
+// lowercase HTML/SVG/custom elements pass; components and blacklisted names do not.
+function shouldInjectJsxElement(openingElement, tagName, options) {
+    if (!tagName) return false;
+    if (options.blacklist.includes(tagName)) return false;
+    if (isComponentJsxName(openingElement.name, tagName)) return false;
+    return true;
+}
+
+// Avoid double-injecting files that have already gone through Genome.
+function hasJsxDnaAttribute(openingElement, prefix) {
+    const wanted = new Set([
+        `${prefix}-path`,
+        `${prefix}-line`,
+        `${prefix}-column`
+    ]);
+
+    return openingElement.attributes.some((attribute) => {
+        if (attribute.type !== 'JSXAttribute') return false;
+        return wanted.has(getJsxName(attribute.name));
+    });
+}
+
+// ObjectExpression keys can be identifiers ({ foo: 1 }) or strings
+// ({ 'data-oobee-path': 1 }). Normalize both forms before duplicate checks.
+function getStringPropertyName(key) {
+    if (!key) return null;
+    if (key.type === 'Identifier') return key.name;
+    if (key.type === 'StringLiteral') return key.value;
+    if (key.type === 'Literal') return String(key.value);
+    return null;
+}
+
+// Detect existing data-oobee props inside React.createElement object literals.
+// Spread props are intentionally ignored because their runtime keys are unknown.
+function hasObjectDnaProperty(objectExpression, prefix) {
+    const wanted = new Set([
+        `${prefix}-path`,
+        `${prefix}-line`,
+        `${prefix}-column`
+    ]);
+
+    return objectExpression.properties.some((property) => {
+        if (!property || property.type === 'SpreadElement') return false;
+        return wanted.has(getStringPropertyName(property.key));
+    });
+}
+
+// Shared duplicate check for parser outputs that expose attributes as simple
+// name-bearing objects, currently HTML parse5 nodes and Vue template props.
+function hasAttributeName(attributes, prefix) {
+    const wanted = new Set([
+        `${prefix}-path`,
+        `${prefix}-line`,
+        `${prefix}-column`
+    ]);
+
+    return attributes.some((attribute) => wanted.has(attribute && attribute.name));
+}
+
+// Match React.createElement(...) calls in the AST. This intentionally accepts
+// only the dot form, not React['createElement'], to keep the transform narrow.
+function isReactCreateElementCall(node) {
+    if (node.type !== 'CallExpression') return false;
+    const callee = node.callee;
+    return (
+        callee &&
+        callee.type === 'MemberExpression' &&
+        !callee.computed &&
+        callee.object &&
+        callee.object.type === 'Identifier' &&
+        callee.object.name === 'React' &&
+        callee.property &&
+        callee.property.type === 'Identifier' &&
+        callee.property.name === 'createElement'
+    );
+}
+
+// Match document.createElement(...) calls so vanilla JS DOM creation can also
+// receive metadata. Only string tag arguments are handled by the caller.
+function isDocumentCreateElementCall(node) {
+    if (node.type !== 'CallExpression') return false;
+    const callee = node.callee;
+    return (
+        callee &&
+        callee.type === 'MemberExpression' &&
+        !callee.computed &&
+        callee.object &&
+        callee.object.type === 'Identifier' &&
+        callee.object.name === 'document' &&
+        callee.property &&
+        callee.property.type === 'Identifier' &&
+        callee.property.name === 'createElement'
+    );
+}
+
+// Pull out tag names only when they are written as real strings:
+// React.createElement('div') -> 'div', safe to inject.
+// React.createElement(Button) -> null, because Button is a component variable.
+function getStringLiteralValue(node) {
+    if (!node) return null;
+    if (node.type === 'StringLiteral') return node.value;
+    if (node.type === 'Literal' && typeof node.value === 'string') return node.value;
+    return null;
+}
+
+// React.createElement's second argument is the props object. When it is null or
+// undefined, React treats that as "no props", so Genome can replace it safely:
+// React.createElement('div', null) -> React.createElement('div', { data... }).
+function isNullishProps(node) {
+    if (!node) return false;
+    if (node.type === 'NullLiteral') return true;
+    if (node.type === 'Identifier' && node.name === 'undefined') return true;
+    if (node.type === 'Literal' && node.value === null) return true;
+    return false;
+}
+
+// Build JSX/HTML-style attributes for insertion after a tag name:
+// <button data-oobee-path="..." data-oobee-line="..." ...>
+function getJsxAttributes(lineIndex, offset, sourcePath, prefix) {
+    const pos = positionFromIndex(lineIndex, offset);
+    return (
+        ` ${prefix}-path="${encodeHtmlAttr(sourcePath)}"` +
+        ` ${prefix}-line="${pos.line}"` +
+        ` ${prefix}-column="${pos.column}"`
+    );
+}
+
+// Build object-literal props for React.createElement:
+// { 'data-oobee-path': "...", 'data-oobee-line': "...", ... }
+function getObjectAttributes(lineIndex, offset, sourcePath, prefix) {
+    const pos = positionFromIndex(lineIndex, offset);
+    return (
+        ` '${prefix}-path': ${encodeJsString(sourcePath)},` +
+        ` '${prefix}-line': "${pos.line}",` +
+        ` '${prefix}-column': "${pos.column}",`
+    );
+}
+
+// Build imperative DOM metadata setters for document.createElement wrappers.
+function getSetAttributeStatements(lineIndex, offset, sourcePath, prefix) {
+    const pos = positionFromIndex(lineIndex, offset);
+    return [
+        `__oobeeEl.setAttribute(${JSON.stringify(`${prefix}-path`)}, ${JSON.stringify(sourcePath)});`,
+        `__oobeeEl.setAttribute(${JSON.stringify(`${prefix}-line`)}, ${JSON.stringify(String(pos.line))});`,
+        `__oobeeEl.setAttribute(${JSON.stringify(`${prefix}-column`)}, ${JSON.stringify(String(pos.column))});`
+    ].join(' ');
+}
+
+// React-family transformer for Next/Vite/React source files.
+// This pass is intentionally AST-based: JSX tags, React.createElement calls,
+// and document.createElement calls are different syntax nodes, so we can
+// inject only into real host elements and avoid TypeScript generics or plain
+// text that merely looks like markup. JSX component tags are skipped by
+// shouldInjectJsxElement; React.createElement is handled only when the first
+// argument is a string tag. Edits are collected as source offsets and applied
+// from right to left with MagicString so earlier offsets stay stable.
+function injectReactDNA(code, sourcePath, options, parsePath = sourcePath) {
+    const ast = parseJavaScriptLike(code, parsePath);
+    const lineIndex = buildLineIndex(code);
+    const prefix = options.attributePrefix;
+    const edits = [];
+
+    walk(ast, (node) => {
+        if (node.type === 'JSXOpeningElement') {
+            const tagName = getJsxName(node.name);
+            if (!shouldInjectJsxElement(node, tagName, options)) return;
+            if (hasJsxDnaAttribute(node, prefix)) return;
+
+            edits.push({
+                start: node.name.end,
+                end: node.name.end,
+                content: getJsxAttributes(lineIndex, node.start, sourcePath, prefix)
+            });
+            return;
+        }
+
+        // React.createElement uses:
+        //   arg[0] = tag/component, arg[1] = props, arg[2+] = children.
+        // Genome only injects when arg[0] is a string DOM tag:
+        //   React.createElement('div') -> add attrs as the props object
+        //   React.createElement('div', null) -> replace null with an attrs object
+        //   React.createElement('div', { className: 'box' }) -> insert attrs into existing props
+        //   React.createElement(Button, null) -> skip because Button is a component
+        // "attrs" is the generated data-oobee properties string.
+        if (isReactCreateElementCall(node)) {
+            const tagName = getStringLiteralValue(node.arguments[0]);
+            if (!tagName || options.blacklist.includes(tagName)) return;
+
+            const props = node.arguments[1];
+            const attrs = getObjectAttributes(lineIndex, node.start, sourcePath, prefix);
+
+            if (!props) {
+                edits.push({
+                    start: node.arguments[0].end,
+                    end: node.arguments[0].end,
+                    content: `, {${attrs} }`
+                });
+            } else if (isNullishProps(props)) {
+                edits.push({
+                    start: props.start,
+                    end: props.end,
+                    content: `{${attrs} }`
+                });
+            } else if (props.type === 'ObjectExpression' && !hasObjectDnaProperty(props, prefix)) {
+                edits.push({
+                    start: props.start + 1,
+                    end: props.start + 1,
+                    content: attrs
+                });
             }
-        } else {
-            // ── Inside a multi-line type block ───────────────────────────────
-            // Update the brace depth and check whether the block just closed.
-            depth += (line.match(/\{/g) || []).length
-                   - (line.match(/\}/g) || []).length;
-            if (depth <= 0) inBlock = false; // block ended on this line
+            return;
+        }
 
-            // Mask regardless — this line is still part of the type block.
-            out.push(' '.repeat(line.length));
+        // document.createElement is the vanilla JS path for code-created DOM:
+        //   document.createElement('button') -> create element, set attrs, return it
+        //   container.appendChild(document.createElement('div')) -> still works inline
+        // Genome wraps the call in an IIFE so the expression keeps returning the
+        // created element after data-oobee attributes are applied with setAttribute.
+        if (isDocumentCreateElementCall(node)) {
+            const tagName = getStringLiteralValue(node.arguments[0]);
+            if (!tagName || options.blacklist.includes(tagName)) return;
+
+            const originalCall = code.slice(node.start, node.end);
+            edits.push({
+                start: node.start,
+                end: node.end,
+                content:
+                    `(() => { const __oobeeEl = ${originalCall}; ` +
+                    `${getSetAttributeStatements(lineIndex, node.start, sourcePath, prefix)} ` +
+                    'return __oobeeEl; })()'
+            });
+        }
+    });
+
+    if (edits.length === 0) return code;
+
+    const magic = new MagicString(code);
+    // Apply edits from right to left because all offsets refer to the original
+    // code; changing later text first keeps earlier coordinates valid.
+    for (const edit of edits.sort((a, b) => b.start - a.start)) {
+        if (edit.start === edit.end) {
+            magic.appendLeft(edit.start, edit.content);
+        } else {
+            magic.overwrite(edit.start, edit.end, edit.content);
         }
     }
 
-    // Re-join with newlines (which were never replaced), restoring the exact
-    // same line structure as the original source.
-    return out.join('\n');
+    return magic.toString();
 }
 
+// HTML transformer for standalone templates. parse5 gives source offsets for
+// real start tags, so the transform can skip comments/text and preserve layout.
+function injectHtmlDNA(code, sourcePath, options) {
+    const ast = parse5.parseFragment(code, { sourceCodeLocationInfo: true });
+    const lineIndex = buildLineIndex(code);
+    const prefix = options.attributePrefix;
+    const edits = [];
+
+    function visit(node) {
+        if (node.tagName && node.sourceCodeLocation && node.sourceCodeLocation.startTag) {
+            const location = node.sourceCodeLocation.startTag;
+            const attrs = Object.keys(location.attrs || {}).map((name) => ({ name }));
+
+            if (!options.blacklist.includes(node.tagName) && !hasAttributeName(attrs, prefix)) {
+                edits.push({
+                    start: location.startOffset + 1 + node.tagName.length,
+                    content: getJsxAttributes(lineIndex, location.startOffset, sourcePath, prefix)
+                });
+            }
+        }
+
+        for (const child of node.childNodes || []) visit(child);
+    }
+
+    for (const child of ast.childNodes || []) visit(child);
+
+    if (edits.length === 0) return code;
+
+    const magic = new MagicString(code);
+    // Apply edits from right to left because all offsets refer to the original
+    // code; changing later text first keeps earlier coordinates valid.
+    for (const edit of edits.sort((a, b) => b.start - a.start)) {
+        magic.appendLeft(edit.start, edit.content);
+    }
+    return magic.toString();
+}
+
+// Vue single-file component transformer. Only the <template> block is edited;
+// script/style content is left alone. Vue component tags are currently treated
+// by the Vue compiler's element kind, while normal rendered elements are tagged.
+function injectVueDNA(code, sourcePath, options) {
+    const parsed = parseVueSfc(code);
+    const template = parsed.descriptor && parsed.descriptor.template;
+    if (!template) return code;
+
+    const ast = parseVueTemplate(template.content, { comments: true });
+    const lineIndex = buildLineIndex(code);
+    const prefix = options.attributePrefix;
+    const baseOffset = template.loc.start.offset;
+    const edits = [];
+
+    function visit(node) {
+        if (node.type === 1 && node.tagType === ElementTypes.ELEMENT) {
+            const attrs = (node.props || []).map((prop) => ({ name: prop.name }));
+            if (!options.blacklist.includes(node.tag) && !hasAttributeName(attrs, prefix)) {
+                const absoluteStart = baseOffset + node.loc.start.offset;
+                edits.push({
+                    start: absoluteStart + 1 + node.tag.length,
+                    content: getJsxAttributes(lineIndex, absoluteStart, sourcePath, prefix)
+                });
+            }
+        }
+
+        for (const child of node.children || []) visit(child);
+    }
+
+    for (const child of ast.children || []) visit(child);
+
+    if (edits.length === 0) return code;
+
+    const magic = new MagicString(code);
+    // Apply edits from right to left because all offsets refer to the original
+    // code; changing later text first keeps earlier coordinates valid.
+    for (const edit of edits.sort((a, b) => b.start - a.start)) {
+        magic.appendLeft(edit.start, edit.content);
+    }
+    return magic.toString();
+}
+
+// Public entry point. Keep framework choice internal: include/exclude decides
+// whether a file is eligible, getFileKind chooses the parser-specific path.
 function injectDNA(code, filePath, options = {}) {
+    const mergedOptions = {
+        blacklist: ['void', 'string', 'number', 'boolean', 'any', 'unknown', 'React'],
+        includePatterns: [/\.(tsx|jsx|js|ts|vue|html)$/],
+        excludePatterns: [/node_modules/],
+        attributePrefix: 'data-oobee',
+        ...options
+    };
+
     const {
-        blacklist = ['void', 'string', 'number', 'boolean', 'any', 'unknown', 'React'],
-        includePatterns = [/\.(tsx|jsx|js|ts|vue|html)$/],
-        excludePatterns = [/node_modules/]
-    } = options;
+        includePatterns,
+        excludePatterns
+    } = mergedOptions;
 
     if (!includePatterns.some(pattern => pattern.test(filePath))) return code;
     if (excludePatterns.some(pattern => pattern.test(filePath))) return code;
 
-    const sourcePath = getSourcePath(filePath);
-    // Two different escape contexts: the JSX/HTML injector splices into an
-    // attribute value (needs entity encoding), the createElement injector
-    // splices into a JS string literal (needs JSON escaping). See the
-    // encoders above for why manual `\"`-only escaping is broken in both.
-    const attrEncodedPath = encodeHtmlAttr(sourcePath);
-    const jsEncodedPath = encodeJsString(sourcePath);
+    assertSafePrefix(mergedOptions.attributePrefix);
+    const absolutePath = getCleanSourcePath(filePath);
+    const kind = getFileKind(absolutePath);
+    const sourcePath = getEmittedPath(absolutePath);
 
-    // ── Step 1: mask ──────────────────────────────────────────────────────
-    // Build a shadow copy of the source where every TypeScript type-declaration
-    // region (type aliases, interfaces, declare blocks, import type lines) is
-    // replaced with spaces of the same length. Newlines are never touched, so
-    // every character offset in the mask is identical to the original source.
-    //
-    // Result: the regex in Step 2 will only ever see actual JSX/HTML markup.
-    const masked = maskTypeScriptRegions(code);
-
-    // ── Step 2: find JSX/HTML opening tags ────────────────────────────────
-    // Regex anatomy:
-    //
-    //   (?<![\w])            Negative lookbehind — the character immediately
-    //                        before `<` must NOT be a word character (a-z, A-Z,
-    //                        0-9, _). This eliminates TypeScript generics
-    //                        written directly after an identifier:
-    //                          useState<T>   ← `e` before `<` → skipped ✓
-    //                          Array<string> ← `y` before `<` → skipped ✓
-    //
-    //   <                    The literal opening angle bracket.
-    //
-    //   (                    Capture group 1 — the tag name:
-    //     [A-Z][a-zA-Z0-9\.]* ← PascalCase or namespaced: MyBtn, React.Fragment
-    //     |                    or
-    //     [a-z][a-z0-9\-]*    ← lowercase HTML: div, my-element
-    //   )
-    //
-    //   (?=[\s>/])           Positive lookahead — the character right after the
-    //                        tag name must be whitespace, `>`, or `/`. These are
-    //                        the ONLY valid next characters for a JSX/HTML tag:
-    //                          <div>         → followed by `>`  ✓
-    //                          <div />       → followed by ` `  ✓
-    //                          <MyComp key=… → followed by ` `  ✓
-    //                        Anything else (`,`, `(`, another letter) means
-    //                        this is a TypeScript generic, not a tag.
-    const regex = /(?<![\w])<([A-Z][a-zA-Z0-9\.]*|[a-z][a-z0-9\-]*)(?=[\s>/])/g;
-
-    // Collect every injection site.
-    // The offsets come from the MASKED string, but because the mask preserves
-    // all line lengths they are byte-identical to the original source offsets.
-    const injections = [];
-    let match;
-    while ((match = regex.exec(masked)) !== null) {
-        const tagName = match[1];
-        // Skip blacklisted names (primitive TS types that somehow slipped through)
-        if (blacklist.includes(tagName)) continue;
-        injections.push({ offset: match.index, tagName });
+    // Parsers still see the real extension; only the emitted path is relative.
+    if (kind === 'react') {
+        return injectReactDNA(code, sourcePath, mergedOptions, absolutePath);
     }
 
-    // ── Step 3: inject attributes into the original source ────────────────
-    // We iterate in REVERSE order (last match first). This is critical:
-    // inserting text at position X makes all positions > X shift rightward.
-    // By working backwards, every insertion only affects positions we've
-    // already processed, so earlier offsets remain correct.
-    //
-    // For each match:
-    //   offset         → position of `<` in the original source
-    //   offset + 1     → position of the first character of tagName
-    //   insertAt       → position right after the last character of tagName
-    //                    (where we splice in the data-oobee-* attributes)
-    //
-    // Before: <div className="foo">
-    //              ^
-    //              insertAt
-    //
-    // After:  <div data-oobee-path="…" data-oobee-line="5" data-oobee-column="3" className="foo">
-    // Precompute newline offsets once for the original source so each
-    // position lookup is O(log L) instead of the original O(L) — see
-    // asgard-0005. Positions are looked up against the ORIGINAL source so
-    // the line/column emitted matches what the developer wrote.
-    const codeLineIndex = buildLineIndex(code);
-    // Build the transformed source with a forward segment scan instead of
-    // the previous `result = result.slice(...) + attrs + result.slice(...)`
-    // splice, which allocated a full copy of the string on every match
-    // (O(N·L) — the *other* half of asgard-0005 that a pure getPosition fix
-    // wouldn't have addressed). `injections` is already in ascending offset
-    // order because it comes from a single regex.exec sweep.
-    const segments = [];
-    let cursor = 0;
-    for (const { offset, tagName } of injections) {
-        const pos = positionFromIndex(codeLineIndex, offset);
-        const dnaAttrs = ` data-oobee-path="${attrEncodedPath}" data-oobee-line="${pos.line}" data-oobee-column="${pos.column}"`;
-        const insertAt = offset + 1 + tagName.length; // right after <tagName
-        segments.push(code.slice(cursor, insertAt));
-        segments.push(dnaAttrs);
-        cursor = insertAt;
+    if (kind === 'html') {
+        return injectHtmlDNA(code, sourcePath, mergedOptions);
     }
-    segments.push(code.slice(cursor));
-    let result = segments.join('');
 
-    // ── Second pass: React.createElement() calls ──────────────────────────
-    // Plain .ts files cannot use JSX angle-bracket syntax — TypeScript only
-    // allows <Tag> in .tsx files. Authors fall back to React.createElement():
-    //
-    //   React.createElement('article', { style: {…} }, child)
-    //
-    // The JSX regex above finds nothing in such files, so we need a separate
-    // pass that injects data-oobee-* into the props argument instead.
-    result = injectCreateElementCalls(result, jsEncodedPath);
+    if (kind === 'vue') {
+        return injectVueDNA(code, sourcePath, mergedOptions);
+    }
 
-    return result;
+    return code;
 }
 
-// Emit a project-relative path (never the absolute build-host path). The
-// prior version returned resolve(cleanPath), which baked the OS username /
-// CI runner layout / internal directory structure into every `data-oobee-*`
-// attribute of the shipped bundle. Consumers only need enough information
-// to click through in an editor, so `path.relative(process.cwd(), …)` gives
-// them the module id relative to the project root while stripping the host
-// prefix. Escapes above the project root are collapsed to the file's
-// basename so a spurious ".." chain cannot re-leak parent segments.
-function getSourcePath(filePath) {
-    const cleanPath = String(filePath).split('?')[0];
-    const absolute = resolve(cleanPath);
-    const projectRoot = resolve(process.cwd());
-    let rel = relative(projectRoot, absolute);
-    if (!rel) return '.';
-    if (rel.startsWith('..' + sep) || rel === '..') {
-        const parts = absolute.split(/[\\/]/);
-        rel = parts[parts.length - 1] || rel;
-    }
-    return rel;
-}
-
-/**
- * Second-pass injection for React.createElement() calls.
- *
- * JSX angle-bracket syntax is only valid in .tsx / .jsx files. In plain .ts
- * files every element must be constructed with React.createElement(), so the
- * first-pass JSX regex never fires. This function finds those calls and injects
- * data-oobee-* attributes into their props argument.
- *
- * Three props shapes are handled:
- *
- *   null / undefined  → replaced with { 'data-oobee-*': '…' }
- *   { … }             → attributes injected at the opening { of the object
- *   anything else     → left untouched (a variable, expression, etc.)
- *
- * Injection is applied in reverse offset order so earlier positions are not
- * shifted by later insertions — the same strategy used by the JSX pass.
- */
-// `jsQuotedPath` MUST be a JSON.stringify'd path — that is, it already contains
-// its surrounding double quotes and is safe against backslash / control-char
-// / quote injection. See the earlier manual `\"`-only escape which allowed a
-// path of `.../foo\"; ...js` to break out of the string literal.
-function injectCreateElementCalls(code, jsQuotedPath) {
-    // Match: React.createElement( <firstArg> ,
-    //
-    // firstArg may be:
-    //   A quoted string  — 'div', "span", `article`
-    //   An identifier    — MyComponent, React.Fragment, ctx.Card
-    //
-    // After the match, match.index + match[0].length is the start of the
-    // second argument (the props).
-    const ceRegex =
-        /\bReact\.createElement\(\s*(?:'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`|[A-Za-z_$][\w$.]*)\s*,\s*/g;
-
-    const injections = [];
-    let m;
-
-    while ((m = ceRegex.exec(code)) !== null) {
-        const callStart  = m.index;                  // position of `R` in `React.`
-        const propsStart = m.index + m[0].length;    // start of the props arg
-        const rest       = code.slice(propsStart);
-
-        if (/^(?:null|undefined)\b/.test(rest)) {
-            // Props is null or undefined — record range to replace entirely
-            const nullLen = rest.match(/^(?:null|undefined)/)[0].length;
-            injections.push({
-                type: 'replace',
-                callStart,
-                replaceStart: propsStart,
-                replaceEnd:   propsStart + nullLen,
-            });
-        } else if (rest[0] === '{') {
-            // Props is an object literal — inject right after the opening {
-            injections.push({
-                type: 'object',
-                callStart,
-                insertAt: propsStart + 1,
-            });
-        }
-        // Variable / complex expression → skip, cannot safely inject
-    }
-
-    // O(L) newline scan + O(log L) per lookup and O(L + N) segment build —
-    // same asgard-0005 treatment as the JSX pass. `injections` was appended
-    // during a single regex.exec sweep so it is already in ascending
-    // callStart order; iterate forward and stream segments.
-    const codeLineIndex = buildLineIndex(code);
-    const segments = [];
-    let cursor = 0;
-    for (const inj of injections) {
-        const pos = positionFromIndex(codeLineIndex, inj.callStart);
-        // Use quoted-string property names because data-* keys contain hyphens.
-        // `jsQuotedPath` is already a JSON-encoded string literal (includes its
-        // surrounding quotes), so it splices in directly without an extra pair.
-        const attrs =
-            ` 'data-oobee-path': ${jsQuotedPath},` +
-            ` 'data-oobee-line': "${pos.line}",` +
-            ` 'data-oobee-column': "${pos.column}",`;
-
-        if (inj.type === 'replace') {
-            // Replace null / undefined with a fresh props object.
-            segments.push(code.slice(cursor, inj.replaceStart));
-            segments.push(`{${attrs} }`);
-            cursor = inj.replaceEnd;
-        } else {
-            // Inject at the start of the existing object (trailing comma is valid JS).
-            segments.push(code.slice(cursor, inj.insertAt));
-            segments.push(attrs);
-            cursor = inj.insertAt;
-        }
-    }
-    segments.push(code.slice(cursor));
-    return segments.join('');
-}
-
+// Lightweight preflight used by adapters before calling injectDNA.
 function shouldTransform(filePath, options = {}) {
     const {
         includePatterns = [/\.(tsx|jsx|js|ts|vue|html)$/],
@@ -431,6 +565,7 @@ function shouldTransform(filePath, options = {}) {
 
 export {
     getPosition,
+    getRelativePath,
     injectDNA,
     shouldTransform
 };

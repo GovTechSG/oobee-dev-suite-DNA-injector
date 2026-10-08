@@ -32,6 +32,25 @@ npm install @govtechsg/oobee-genome
 > - Always create a **separate** dev-only config file (e.g. `vite.config.oobee.ts`, `webpack.config.oobee.js`, `next.config.oobee.js`).
 > - Use `npm run dev:oobee` for local debugging, and `npm run build` for all production builds.
 
+#### Built-in safeguards
+
+The adapters also refuse to inject outside development, as a backstop in case a dev config is used by mistake:
+
+| Adapter | Injects only when |
+|---|---|
+| Vite | Running the dev server (`apply: 'serve'`) |
+| Next.js | `NODE_ENV=development` **and** webpack reports a dev build |
+| Webpack, Rollup, esbuild, Angular | `NODE_ENV=development` |
+
+All adapters except Vite stay disabled whenever `CI=true`/`CI=1`, `VERCEL_ENV` is `production` or `preview`, or `NEXT_PHASE` is a production phase, even if `NODE_ENV=development`. To inject into a local production-mode build anyway, set **both** `OOBEE_DNA_FORCE=1` and `OOBEE_DNA_FORCE_ACK=i-understand-this-leaks-paths`. The CI/Vercel/Next signals still win over this override.
+
+Other guarantees:
+
+- `data-oobee-path` is **project-relative** (e.g. `src/App.tsx`), resolved against the directory the build runs in. Your username and absolute directory layout are never embedded. Files outside the project are reduced to their file name.
+- File names are escaped for each output context (HTML/JSX attributes, JavaScript strings), so a file named e.g. `x" onload="….tsx` cannot inject markup or code.
+- `attributePrefix` must be a plain attribute name (letters, digits, `-`); anything else throws.
+- Line/column lookups are linear in file size, so very large files do not stall the dev server.
+
 
 
 ## 3. 🛠️ Choose Your Framework / Build Tool
@@ -396,7 +415,7 @@ Before starting a scan, confirm that oobee-genome is actually injecting source-l
 
    ```html
    <input
-     data-oobee-path="/path/to/project/src/App.tsx"
+     data-oobee-path="src/App.tsx"
      data-oobee-line="25"
      data-oobee-column="17"
    />
@@ -404,7 +423,7 @@ Before starting a scan, confirm that oobee-genome is actually injecting source-l
 
    You should see:
 
-   - `data-oobee-path`: the source file path
+   - `data-oobee-path`: the source file path, relative to the project root
    - `data-oobee-line`: the original source line number
    - `data-oobee-column`: the original source column number
 
@@ -428,6 +447,18 @@ Before starting a scan, confirm that oobee-genome is actually injecting source-l
 **Problem:** oobee not activating when I run `npm run dev:oobee`
 
 - **Solution:** Check that your dev config file exists and imports oobee adapter correctly
+- **Solution:** For Webpack, Rollup, esbuild and Angular, make sure `NODE_ENV=development` is set and `CI` is not. These adapters stay disabled otherwise (see *Built-in safeguards*)
+
+**Problem:** I get `invalid attributePrefix`
+
+- **Solution:** Use a plain attribute name such as `data-oobee` or `data-myapp`, with no quotes, spaces or punctuation other than `-`
+
+## 6. 🧪 Development
+
+```bash
+npm install
+npm test   # node:test suites in test/: injection, escaping, paths, performance, dev-only gates
+```
 
 **Problem:** I accidentally built with the oobee config
 
