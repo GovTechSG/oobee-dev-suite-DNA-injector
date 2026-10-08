@@ -1,29 +1,97 @@
-const { relative, resolve } = require('path');
+const { relative, resolve, sep } = require('path');
 
 /**
  * Returns the 1-based line and column for a character at `index` inside `str`.
  *
- * Strategy: slice everything up to `index`, split on newlines.
- * The number of resulting segments = line number.
- * The length of the last segment = column (characters after the last newline).
+ * Public API — external callers may still call this directly, so it must
+ * work standalone. The old implementation allocated `str.substring(0,index)`
+ * plus a `split('\n')` on every call, giving O(str.length) time+memory per
+ * lookup. When invoked once per JSX/HTML tag inside injectDNA that produced
+ * an overall O(N·L) ≈ O(L²) transform (32k tags took ~4s, 64k ~16s in the
+ * asgard-0005 repro). Internal callers now precompute a line index once via
+ * buildLineIndex() and call positionFromIndex() for O(log L) lookups; this
+ * top-level helper does the same on the fly so callers get the fast path
+ * without changing shape.
  */
 function getPosition(str, index) {
-    const lines = str.substring(0, index).split('\n');
-    return {
-        line: lines.length,
-        column: lines[lines.length - 1].length + 1
-    };
+    const nlOffsets = buildLineIndex(str);
+    return positionFromIndex(nlOffsets, index);
+}
+
+// O(L) single pass — collects every '\n' byte offset in the source. Reused
+// by every getPosition-equivalent lookup inside injectDNA to avoid the
+// quadratic substring+split pattern the original code used per injection.
+function buildLineIndex(str) {
+    const offsets = [];
+    for (let i = 0, len = str.length; i < len; i++) {
+        if (str.charCodeAt(i) === 10) offsets.push(i);
+    }
+    return offsets;
+}
+
+// O(log L) binary search over a precomputed newline-offset array. Returns
+// the same {line, column} shape as the original substring+split
+// implementation — verified against edge cases (index=0, index at newline,
+// first char of next line, out-of-tree indices).
+function positionFromIndex(nlOffsets, index) {
+    let lo = 0;
+    let hi = nlOffsets.length;
+    while (lo < hi) {
+        const mid = (lo + hi) >>> 1;
+        if (nlOffsets[mid] < index) lo = mid + 1;
+        else hi = mid;
+    }
+    const line = lo + 1;
+    const lastNlBefore = lo === 0 ? -1 : nlOffsets[lo - 1];
+    return { line, column: index - lastNlBefore };
 }
 
 function getRelativePath(filePath, rootPath = process.cwd()) {
     return relative(rootPath, filePath);
 }
 
+// Emit a project-relative path (never the absolute build-host path). The
+// prior CJS version returned resolve(cleanPath), which baked the OS
+// username / CI runner layout / internal directory structure into every
+// `data-oobee-*` attribute of the shipped bundle — the ESM twin was
+// hardened for exactly this and the CJS build accidentally shipped
+// unpatched. Escapes above the project root are collapsed to the file's
+// basename so a spurious `..` chain cannot re-leak parent segments.
 function getSourcePath(filePath) {
-    // Strip query strings that bundlers append to virtual module IDs
-    // e.g. "/src/App.tsx?t=1234" → "/src/App.tsx"
-    const cleanPath = filePath.split('?')[0];
-    return resolve(cleanPath);
+    const cleanPath = String(filePath).split('?')[0];
+    const absolute = resolve(cleanPath);
+    const projectRoot = resolve(process.cwd());
+    let rel = relative(projectRoot, absolute);
+    if (!rel) return '.';
+    if (rel.startsWith('..' + sep) || rel === '..') {
+        const parts = absolute.split(/[\\/]/);
+        rel = parts[parts.length - 1] || rel;
+    }
+    return rel;
+}
+
+// HTML attribute-value escape. Used when splicing the source-file path into a
+// JSX/HTML attribute (`data-oobee-path="..."`). Backslash escaping is inert in
+// HTML — an attacker-controlled path like `foo" onload=alert(1) x="` would
+// break out of the attribute if we did the JS-style backslash escape. We must
+// entity-encode `&`, `<`, `>`, and `"` so the parsed attribute value equals
+// the original path and no additional attributes materialize.
+function encodeHtmlAttr(s) {
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+// JS string-literal escape. Used when splicing the source-file path into a
+// JavaScript string in generated code (`'data-oobee-path': "..."`). Manual
+// double-quote escaping is not enough — a path containing `\` + `"` becomes
+// `\\"` which terminates the string. JSON.stringify handles backslashes,
+// quotes, control characters, and non-BMP correctly and returns the value
+// wrapped in double quotes.
+function encodeJsString(s) {
+    return JSON.stringify(String(s));
 }
 
 /**
@@ -151,7 +219,12 @@ function injectDNA(code, filePath, options = {}) {
     if (excludePatterns.some(pattern => pattern.test(filePath))) return code;
 
     const sourcePath = getSourcePath(filePath);
-    const escapedPath = sourcePath.replace(/"/g, '\\"');
+    // Two different escape contexts: the JSX/HTML injector splices into an
+    // attribute value (needs entity encoding), the createElement injector
+    // splices into a JS string literal (needs JSON escaping). See the
+    // encoders above for why manual `\"`-only escaping is broken in both.
+    const attrEncodedPath = encodeHtmlAttr(sourcePath);
+    const jsEncodedPath = encodeJsString(sourcePath);
 
     // ── Step 1: mask ──────────────────────────────────────────────────────
     // Build a shadow copy of the source where every TypeScript type-declaration
@@ -219,14 +292,27 @@ function injectDNA(code, filePath, options = {}) {
     //              insertAt
     //
     // After:  <div data-oobee-path="…" data-oobee-line="5" data-oobee-column="3" className="foo">
-    let result = code;
-    for (let i = injections.length - 1; i >= 0; i--) {
-        const { offset, tagName } = injections[i];
-        const pos = getPosition(code, offset); // line/col from the ORIGINAL source
-        const dnaAttrs = ` data-oobee-path="${escapedPath}" data-oobee-line="${pos.line}" data-oobee-column="${pos.column}"`;
+    // Precompute newline offsets once for the original source so each
+    // position lookup is O(log L). Build the transformed source with a
+    // forward segment scan instead of the previous
+    // `result = result.slice(...) + attrs + result.slice(...)` splice,
+    // which allocated a full copy of the string on every match (O(N·L) —
+    // the *other* half of asgard-0005 that a pure getPosition fix wouldn't
+    // have addressed). `injections` is already in ascending offset order
+    // because it comes from a single regex.exec sweep.
+    const codeLineIndex = buildLineIndex(code);
+    const segments = [];
+    let cursor = 0;
+    for (const { offset, tagName } of injections) {
+        const pos = positionFromIndex(codeLineIndex, offset);
+        const dnaAttrs = ` data-oobee-path="${attrEncodedPath}" data-oobee-line="${pos.line}" data-oobee-column="${pos.column}"`;
         const insertAt = offset + 1 + tagName.length;
-        result = result.slice(0, insertAt) + dnaAttrs + result.slice(insertAt);
+        segments.push(code.slice(cursor, insertAt));
+        segments.push(dnaAttrs);
+        cursor = insertAt;
     }
+    segments.push(code.slice(cursor));
+    let result = segments.join('');
 
     // ── Second pass: React.createElement() calls ──────────────────────────
     // Plain .ts files cannot use JSX angle-bracket syntax — TypeScript only
@@ -236,7 +322,7 @@ function injectDNA(code, filePath, options = {}) {
     //
     // The JSX regex above finds nothing in such files, so we need a separate
     // pass that injects data-oobee-* into the props argument instead.
-    result = injectCreateElementCalls(result, escapedPath);
+    result = injectCreateElementCalls(result, jsEncodedPath);
 
     return result;
 }
@@ -258,7 +344,11 @@ function injectDNA(code, filePath, options = {}) {
  * Injection is applied in reverse offset order so earlier positions are not
  * shifted by later insertions — the same strategy used by the JSX pass.
  */
-function injectCreateElementCalls(code, escapedPath) {
+// `jsQuotedPath` MUST be a JSON.stringify'd path — that is, it already contains
+// its surrounding double quotes and is safe against backslash / control-char
+// / quote injection. See the earlier manual `\"`-only escape which allowed a
+// path of `.../foo\"; ...js` to break out of the string literal.
+function injectCreateElementCalls(code, jsQuotedPath) {
     const ceRegex =
         /\bReact\.createElement\(\s*(?:'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`|[A-Za-z_$][\w$.]*)\s*,\s*/g;
 
@@ -287,29 +377,31 @@ function injectCreateElementCalls(code, escapedPath) {
         }
     }
 
-    let result = code;
-    for (let i = injections.length - 1; i >= 0; i--) {
-        const inj = injections[i];
-        const pos = getPosition(code, inj.callStart);
+    // O(L) newline scan + O(log L) per lookup and O(L + N) segment build —
+    // same asgard-0005 treatment as the JSX pass. Iterate forward in
+    // ascending callStart order (regex.exec produced them that way).
+    const codeLineIndex = buildLineIndex(code);
+    const segments = [];
+    let cursor = 0;
+    for (const inj of injections) {
+        const pos = positionFromIndex(codeLineIndex, inj.callStart);
         const attrs =
-            ` 'data-oobee-path': "${escapedPath}",` +
+            ` 'data-oobee-path': ${jsQuotedPath},` +
             ` 'data-oobee-line': "${pos.line}",` +
             ` 'data-oobee-column': "${pos.column}",`;
 
         if (inj.type === 'replace') {
-            result =
-                result.slice(0, inj.replaceStart) +
-                `{${attrs} }` +
-                result.slice(inj.replaceEnd);
+            segments.push(code.slice(cursor, inj.replaceStart));
+            segments.push(`{${attrs} }`);
+            cursor = inj.replaceEnd;
         } else {
-            result =
-                result.slice(0, inj.insertAt) +
-                attrs +
-                result.slice(inj.insertAt);
+            segments.push(code.slice(cursor, inj.insertAt));
+            segments.push(attrs);
+            cursor = inj.insertAt;
         }
     }
-
-    return result;
+    segments.push(code.slice(cursor));
+    return segments.join('');
 }
 
 function shouldTransform(filePath, options = {}) {
