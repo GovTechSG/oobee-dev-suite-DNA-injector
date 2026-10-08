@@ -23,13 +23,14 @@
   ],
   "author": "Government Technology Agency <info@tech.gov.sg>",
   "license": "MIT",
-  "homepage": "https://github.com/GovTechSG/oobee-dev-suite-DNA-injector#readme",
+  "homepage": "https://github.com/GovTechSG/oobee-dev-suite-DNA-injector/tree/master/oobee-genome#readme",
   "bugs": {
     "url": "https://github.com/GovTechSG/oobee-dev-suite-DNA-injector/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/GovTechSG/oobee-dev-suite-DNA-injector.git"
+    "url": "https://github.com/GovTechSG/oobee-dev-suite-DNA-injector.git",
+    "directory": "oobee-genome"
   },
   "scripts": {
     "test": "node --test test/*.test.mjs",
