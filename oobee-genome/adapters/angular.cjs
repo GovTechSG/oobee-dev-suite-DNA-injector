@@ -1,11 +1,15 @@
 const { injectDNA, shouldTransform } = require('../core/transformer.cjs');
 const { mergeOptions } = require('../core/options.cjs');
+const { isDevelopmentBuild } = require('../core/environment.cjs');
 const { log, getRelativePath } = require('../core/utils.cjs');
 
 function oobeeAngularPlugin(options = {}) {
     const mergedOptions = mergeOptions(options);
+    // Fail-closed dev gate — see angular.js for rationale.
+    const enabledForDev = isDevelopmentBuild();
 
     return function angularWebpackPlugin(config) {
+        if (!enabledForDev) return config;
         if (!mergedOptions.enabled) return config;
 
         if (!config.module) config.module = {};
@@ -29,6 +33,7 @@ function oobeeAngularPlugin(options = {}) {
 function webpackLoader(source) {
     const mergedOptions = mergeOptions({});
 
+    if (!isDevelopmentBuild()) return source;
     if (!mergedOptions.enabled) return source;
 
     const filePath = this.resourcePath;

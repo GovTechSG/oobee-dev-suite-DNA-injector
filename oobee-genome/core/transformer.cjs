@@ -1,4 +1,4 @@
-const { relative, resolve } = require('path');
+const { relative, resolve, sep } = require('path');
 const { parse } = require('@babel/parser');
 const MagicString = require('magic-string');
 const parse5 = require('parse5');
@@ -8,11 +8,29 @@ const { parse: parseVueTemplate, ElementTypes } = require('@vue/compiler-dom');
 // Convert a character offset in the original source into 1-based line/column.
 // All generated metadata uses positions from the unmodified input code.
 function getPosition(str, index) {
-    const lines = str.substring(0, index).split('\n');
-    return {
-        line: lines.length,
-        column: lines[lines.length - 1].length + 1
-    };
+    return positionFromIndex(buildLineIndex(str), index);
+}
+
+// Per-tag substring+split made the transform O(tags x length); large files
+// could stall the dev server. Index newlines once, then binary-search.
+function buildLineIndex(str) {
+    const offsets = [];
+    for (let i = 0, len = str.length; i < len; i++) {
+        if (str.charCodeAt(i) === 10) offsets.push(i);
+    }
+    return offsets;
+}
+
+function positionFromIndex(nlOffsets, index) {
+    let lo = 0;
+    let hi = nlOffsets.length;
+    while (lo < hi) {
+        const mid = (lo + hi) >>> 1;
+        if (nlOffsets[mid] < index) lo = mid + 1;
+        else hi = mid;
+    }
+    const lastNlBefore = lo === 0 ? -1 : nlOffsets[lo - 1];
+    return { line: lo + 1, column: index - lastNlBefore };
 }
 
 function getRelativePath(filePath, rootPath = process.cwd()) {
@@ -21,9 +39,46 @@ function getRelativePath(filePath, rootPath = process.cwd()) {
 
 // Bundlers can append query strings to module IDs, e.g. App.tsx?t=123.
 // Strip those before resolving so parser dispatch sees the real extension.
-function getSourcePath(filePath) {
-    const cleanPath = filePath.split('?')[0];
-    return resolve(cleanPath);
+function getCleanSourcePath(filePath) {
+    return resolve(String(filePath).split('?')[0]);
+}
+
+// The emitted path is project-relative so the OS username / CI layout is
+// never baked into the DOM. Files outside the project collapse to their
+// basename so a `..` chain cannot re-leak parent directories. Dev Suite
+// resolves these relative paths against the workspace root.
+function getEmittedPath(absolutePath) {
+    const rel = relative(resolve(process.cwd()), absolutePath);
+    if (!rel) return '.';
+    if (rel === '..' || rel.startsWith('..' + sep) || resolve(rel) === rel) {
+        const parts = absolutePath.split(/[\\/]/);
+        return parts[parts.length - 1] || rel;
+    }
+    return rel.split(sep).join('/');
+}
+
+// Paths are attacker-influenced (a cloned repo can name a file
+// `x" onload=alert(1).tsx`). Backslash escaping is inert in HTML and JSX
+// attribute strings, so entity-encode; both decode entities back to the path.
+function encodeHtmlAttr(s) {
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+// Generated JS string literal; handles backslashes, quotes and control chars.
+function encodeJsString(s) {
+    return JSON.stringify(String(s));
+}
+
+// The prefix is spliced raw into markup and code, so restrict it to a plain
+// attribute-name shape.
+function assertSafePrefix(prefix) {
+    if (typeof prefix !== 'string' || !/^[a-z][a-z0-9-]*$/i.test(prefix)) {
+        throw new Error(`[oobee-genome] invalid attributePrefix: ${JSON.stringify(prefix)}`);
+    }
 }
 
 // Pick the transformer from the resolved source path. "React" here means the
@@ -241,10 +296,10 @@ function isNullishProps(node) {
 
 // Build JSX/HTML-style attributes for insertion after a tag name:
 // <button data-oobee-path="..." data-oobee-line="..." ...>
-function getJsxAttributes(code, offset, escapedPath, prefix) {
-    const pos = getPosition(code, offset);
+function getJsxAttributes(lineIndex, offset, sourcePath, prefix) {
+    const pos = positionFromIndex(lineIndex, offset);
     return (
-        ` ${prefix}-path="${escapedPath}"` +
+        ` ${prefix}-path="${encodeHtmlAttr(sourcePath)}"` +
         ` ${prefix}-line="${pos.line}"` +
         ` ${prefix}-column="${pos.column}"`
     );
@@ -252,19 +307,18 @@ function getJsxAttributes(code, offset, escapedPath, prefix) {
 
 // Build object-literal props for React.createElement:
 // { 'data-oobee-path': "...", 'data-oobee-line': "...", ... }
-function getObjectAttributes(code, offset, escapedPath, prefix) {
-    const pos = getPosition(code, offset);
+function getObjectAttributes(lineIndex, offset, sourcePath, prefix) {
+    const pos = positionFromIndex(lineIndex, offset);
     return (
-        ` '${prefix}-path': "${escapedPath}",` +
+        ` '${prefix}-path': ${encodeJsString(sourcePath)},` +
         ` '${prefix}-line': "${pos.line}",` +
         ` '${prefix}-column': "${pos.column}",`
     );
 }
 
 // Build imperative DOM metadata setters for document.createElement wrappers.
-// JSON.stringify handles escaping for JavaScript string literals.
-function getSetAttributeStatements(code, offset, sourcePath, prefix) {
-    const pos = getPosition(code, offset);
+function getSetAttributeStatements(lineIndex, offset, sourcePath, prefix) {
+    const pos = positionFromIndex(lineIndex, offset);
     return [
         `__oobeeEl.setAttribute(${JSON.stringify(`${prefix}-path`)}, ${JSON.stringify(sourcePath)});`,
         `__oobeeEl.setAttribute(${JSON.stringify(`${prefix}-line`)}, ${JSON.stringify(String(pos.line))});`,
@@ -280,9 +334,9 @@ function getSetAttributeStatements(code, offset, sourcePath, prefix) {
 // shouldInjectJsxElement; React.createElement is handled only when the first
 // argument is a string tag. Edits are collected as source offsets and applied
 // from right to left with MagicString so earlier offsets stay stable.
-function injectReactDNA(code, sourcePath, options) {
-    const ast = parseJavaScriptLike(code, sourcePath);
-    const escapedPath = sourcePath.replace(/"/g, '\\"');
+function injectReactDNA(code, sourcePath, options, parsePath = sourcePath) {
+    const ast = parseJavaScriptLike(code, parsePath);
+    const lineIndex = buildLineIndex(code);
     const prefix = options.attributePrefix;
     const edits = [];
 
@@ -295,7 +349,7 @@ function injectReactDNA(code, sourcePath, options) {
             edits.push({
                 start: node.name.end,
                 end: node.name.end,
-                content: getJsxAttributes(code, node.start, escapedPath, prefix)
+                content: getJsxAttributes(lineIndex, node.start, sourcePath, prefix)
             });
             return;
         }
@@ -313,7 +367,7 @@ function injectReactDNA(code, sourcePath, options) {
             if (!tagName || options.blacklist.includes(tagName)) return;
 
             const props = node.arguments[1];
-            const attrs = getObjectAttributes(code, node.start, escapedPath, prefix);
+            const attrs = getObjectAttributes(lineIndex, node.start, sourcePath, prefix);
 
             if (!props) {
                 edits.push({
@@ -352,7 +406,7 @@ function injectReactDNA(code, sourcePath, options) {
                 end: node.end,
                 content:
                     `(() => { const __oobeeEl = ${originalCall}; ` +
-                    `${getSetAttributeStatements(code, node.start, sourcePath, prefix)} ` +
+                    `${getSetAttributeStatements(lineIndex, node.start, sourcePath, prefix)} ` +
                     'return __oobeeEl; })()'
             });
         }
@@ -378,7 +432,7 @@ function injectReactDNA(code, sourcePath, options) {
 // real start tags, so the transform can skip comments/text and preserve layout.
 function injectHtmlDNA(code, sourcePath, options) {
     const ast = parse5.parseFragment(code, { sourceCodeLocationInfo: true });
-    const escapedPath = sourcePath.replace(/"/g, '\\"');
+    const lineIndex = buildLineIndex(code);
     const prefix = options.attributePrefix;
     const edits = [];
 
@@ -390,7 +444,7 @@ function injectHtmlDNA(code, sourcePath, options) {
             if (!options.blacklist.includes(node.tagName) && !hasAttributeName(attrs, prefix)) {
                 edits.push({
                     start: location.startOffset + 1 + node.tagName.length,
-                    content: getJsxAttributes(code, location.startOffset, escapedPath, prefix)
+                    content: getJsxAttributes(lineIndex, location.startOffset, sourcePath, prefix)
                 });
             }
         }
@@ -420,7 +474,7 @@ function injectVueDNA(code, sourcePath, options) {
     if (!template) return code;
 
     const ast = parseVueTemplate(template.content, { comments: true });
-    const escapedPath = sourcePath.replace(/"/g, '\\"');
+    const lineIndex = buildLineIndex(code);
     const prefix = options.attributePrefix;
     const baseOffset = template.loc.start.offset;
     const edits = [];
@@ -432,7 +486,7 @@ function injectVueDNA(code, sourcePath, options) {
                 const absoluteStart = baseOffset + node.loc.start.offset;
                 edits.push({
                     start: absoluteStart + 1 + node.tag.length,
-                    content: getJsxAttributes(code, absoluteStart, escapedPath, prefix)
+                    content: getJsxAttributes(lineIndex, absoluteStart, sourcePath, prefix)
                 });
             }
         }
@@ -472,11 +526,14 @@ function injectDNA(code, filePath, options = {}) {
     if (!includePatterns.some(pattern => pattern.test(filePath))) return code;
     if (excludePatterns.some(pattern => pattern.test(filePath))) return code;
 
-    const sourcePath = getSourcePath(filePath);
-    const kind = getFileKind(sourcePath);
+    assertSafePrefix(mergedOptions.attributePrefix);
+    const absolutePath = getCleanSourcePath(filePath);
+    const kind = getFileKind(absolutePath);
+    const sourcePath = getEmittedPath(absolutePath);
 
+    // Parsers still see the real extension; only the emitted path is relative.
     if (kind === 'react') {
-        return injectReactDNA(code, sourcePath, mergedOptions);
+        return injectReactDNA(code, sourcePath, mergedOptions, absolutePath);
     }
 
     if (kind === 'html') {

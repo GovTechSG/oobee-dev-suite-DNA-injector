@@ -2,6 +2,7 @@ import { injectDNA, shouldTransform } from '../core/transformer.js';
 import { mergeOptions } from '../core/options.js';
 import { log, getRelativePath } from '../core/utils.js';
 import { promises as fs } from 'fs';
+import { isDevelopmentBuild } from '../core/environment.js';
 
 function getLoader(filePath) {
     if (filePath.endsWith('.html')) return 'text';
@@ -14,6 +15,8 @@ function getLoader(filePath) {
 
 function oobeeEsbuildPlugin(options = {}) {
     const mergedOptions = mergeOptions(options);
+    // esbuild has no dev/prod signal; use the shared fail-closed gate.
+    const enabledForDev = isDevelopmentBuild();
 
     return {
         name: 'oobee-injector',
@@ -21,7 +24,7 @@ function oobeeEsbuildPlugin(options = {}) {
             build.onLoad(
                 { filter: /\.(ts|tsx|js|jsx|vue|html)$/ },
                 async (args) => {
-                    if (!mergedOptions.enabled) return null;
+                    if (!enabledForDev || !mergedOptions.enabled) return null;
                     if (!shouldTransform(args.path, mergedOptions)) return null;
 
                     log(`Transforming (esbuild): ${getRelativePath(args.path)}`, mergedOptions.verbose);
