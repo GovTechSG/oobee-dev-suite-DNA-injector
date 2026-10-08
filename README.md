@@ -1,6 +1,6 @@
 # oobee-dev-suite-DNA-injector
 
-Source-location tracking for DOM elements, used by the [Oobee Dev Suite](https://github.com/GovTechSG/oobee-dev-suite-vscode-oss) VS Code extension to map accessibility issues found in a running app back to the exact file, line and column in your source code.
+Source-location tracking for DOM elements, used by the Oobee Dev Suite VS Code extension to map accessibility issues found in a running app back to the exact file, line and column in your source code.
 
 During local development, every rendered element gets attributes such as:
 
