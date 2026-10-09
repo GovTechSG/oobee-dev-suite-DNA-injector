@@ -4,7 +4,7 @@
 // on the ESM twin would leave the CJS consumers unprotected exactly the
 // way transformer.cjs was.
 function isDevelopmentBuild() {
-    const nodeEnv = String(process.env.NODE_ENV || '').toLowerCase();
+    const nodeEnv = String(process.env.NODE_ENV || '').trim().toLowerCase();
     const nextPhase = String(process.env.NEXT_PHASE || '');
     const vercelEnv = String(process.env.VERCEL_ENV || '').toLowerCase();
 
@@ -19,7 +19,7 @@ function isDevelopmentBuild() {
         return true;
     }
 
-    return nodeEnv === 'development';
+    return ['dev', 'test', 'ci'].some((prefix) => nodeEnv.startsWith(prefix));
 }
 
 module.exports = { isDevelopmentBuild };

@@ -26,7 +26,7 @@
 // A single-var override (as the original next.js adapter had) is too easy
 // to leave set in a staging environment and silently re-enable the leak.
 function isDevelopmentBuild() {
-    const nodeEnv = String(process.env.NODE_ENV || '').toLowerCase();
+    const nodeEnv = String(process.env.NODE_ENV || '').trim().toLowerCase();
     const nextPhase = String(process.env.NEXT_PHASE || '');
     const vercelEnv = String(process.env.VERCEL_ENV || '').toLowerCase();
 
@@ -49,7 +49,7 @@ function isDevelopmentBuild() {
         return true;
     }
 
-    return nodeEnv === 'development';
+    return ['dev', 'test', 'ci'].some((prefix) => nodeEnv.startsWith(prefix));
 }
 
 export { isDevelopmentBuild };

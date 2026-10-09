@@ -39,10 +39,10 @@ The adapters also refuse to inject outside development, as a backstop in case a 
 | Adapter | Injects only when |
 |---|---|
 | Vite | Running the dev server (`apply: 'serve'`) |
-| Next.js | `NODE_ENV=development` **and** webpack reports a dev build |
-| Webpack, Rollup, esbuild, Angular | `NODE_ENV=development` |
+| Next.js | `NODE_ENV` starts with `dev`, `test` or `ci`, any case (e.g. `dev`, `DEV`, `development`, `testing`, `ci`) **and** webpack reports a dev build |
+| Webpack, Rollup, esbuild, Angular | `NODE_ENV` starts with `dev`, `test` or `ci`, any case (e.g. `dev`, `DEV`, `development`, `testing`, `ci`) |
 
-All adapters except Vite stay disabled whenever `CI=true`/`CI=1`, `VERCEL_ENV` is `production` or `preview`, or `NEXT_PHASE` is a production phase, even if `NODE_ENV=development`. To inject into a local production-mode build anyway, set **both** `OOBEE_DNA_FORCE=1` and `OOBEE_DNA_FORCE_ACK=i-understand-this-leaks-paths`. The CI/Vercel/Next signals still win over this override.
+All adapters except Vite stay disabled whenever `CI=true`/`CI=1`, `VERCEL_ENV` is `production` or `preview`, or `NEXT_PHASE` is a production phase, even if `NODE_ENV` is a dev/test/ci value. To inject into a local production-mode build anyway, set **both** `OOBEE_DNA_FORCE=1` and `OOBEE_DNA_FORCE_ACK=i-understand-this-leaks-paths`. The CI/Vercel/Next signals still win over this override.
 
 Other guarantees:
 
