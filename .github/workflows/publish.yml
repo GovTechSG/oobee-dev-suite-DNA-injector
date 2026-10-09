@@ -29,7 +29,7 @@ jobs:
         working-directory: oobee-genome
     steps:
       # Third-party GitHub Actions are pinned to a full commit SHA rather than
-      # the mutable `@v4` tag. The publish job holds NPM_TOKEN and `id-token: write`
+      # the mutable `@v4` tag. The publish job holds `id-token: write`
       # for provenance signing, so a repointed `v4` tag would land
       # attacker-controlled JavaScript inside a credential-bearing step.
       # Update the SHA + trailing version comment together at each intended
@@ -84,9 +84,9 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-24.04
-    # Protected environment: required reviewers, deployments limited to the
-    # default branch, and NPM_TOKEN stored as an environment secret so no
-    # other job or branch can read it.
+    # Protected environment: required reviewers and deployments limited to the
+    # default branch. npm trusted publishing is bound to this workflow file and
+    # environment, so no long-lived npm token exists to leak.
     environment: npm-publish
     permissions:
       contents: write
@@ -106,24 +106,23 @@ jobs:
           name: package
           path: ${{ runner.temp }}/pkg
 
-      # Version tags are never force-pushed, so a published release can't be
-      # rewritten. Only the moving `latest` pointer is updated.
+      # Trusted publishing (OIDC) needs npm >= 11.5.1; provenance is automatic.
+      - name: Install npm with trusted publishing support
+        run: npm install -g npm@11.6.2 --ignore-scripts
+
+      - name: Publish to npm
+        run: npm publish --access public --ignore-scripts "$RUNNER_TEMP"/pkg/*.tgz
+
+      # Tag only after npm accepted the version (npm rejects duplicates). Version
+      # tags are never force-pushed, so a release tag can't be rewritten; only
+      # the moving `latest` pointer is.
       - name: Create and push git tags
         env:
           VERSION: ${{ needs.build.outputs.version }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          if git ls-remote --exit-code --tags origin "refs/tags/${VERSION}" >/dev/null; then
-            echo "::error::Tag ${VERSION} already exists; bump the version in oobee-genome/package.json."
-            exit 1
-          fi
           git tag -a "${VERSION}" -m "Version ${VERSION}"
           git push origin "refs/tags/${VERSION}"
           git tag -af "latest" -m "Latest release ${VERSION}"
           git push origin "refs/tags/latest" --force
-
-      - name: Publish to npm
-        run: npm publish --provenance --access public --ignore-scripts "$RUNNER_TEMP"/pkg/*.tgz
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
