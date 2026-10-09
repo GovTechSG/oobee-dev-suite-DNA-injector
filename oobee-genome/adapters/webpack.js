@@ -5,16 +5,10 @@ import { log, getRelativePath } from '../core/utils.js';
 
 function oobeeWebpackLoader(options = {}) {
     const mergedOptions = mergeOptions(options);
-    // Fail-closed dev gate — see rollup.js for the rationale. The Next.js
-    // adapter already re-checks webpack's authoritative `options.dev`
-    // before registering the loader, but a bare webpack consumer who wires
-    // this loader directly bypasses that check, so gate here as well.
-    const enabledForDev = isDevelopmentBuild();
-
     return function loader(source) {
-        // webpack's mode is authoritative; NODE_ENV in the build shell is not.
-        if (this.mode && this.mode !== 'development') return source;
-        if (!enabledForDev) return source;
+        // Fail-closed dev gate — see rollup.js. Bare webpack consumers skip the
+        // Next.js `options.dev` check, so gate on webpack's own mode here.
+        if (!isDevelopmentBuild(this.mode)) return source;
         if (!mergedOptions.enabled) return source;
 
         const filePath = this.resourcePath;

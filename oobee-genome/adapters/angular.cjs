@@ -6,10 +6,8 @@ const { log, getRelativePath } = require('../core/utils.cjs');
 function oobeeAngularPlugin(options = {}) {
     const mergedOptions = mergeOptions(options);
     // Fail-closed dev gate — see angular.js for rationale.
-    const enabledForDev = isDevelopmentBuild();
-
     return function angularWebpackPlugin(config) {
-        if (!enabledForDev) return config;
+        if (!isDevelopmentBuild(config && config.mode)) return config;
         if (!mergedOptions.enabled) return config;
 
         if (!config.module) config.module = {};
@@ -33,9 +31,7 @@ function oobeeAngularPlugin(options = {}) {
 function webpackLoader(source) {
     const mergedOptions = mergeOptions({});
 
-    // webpack's mode is authoritative; NODE_ENV in the build shell is not.
-    if (this.mode && this.mode !== 'development') return source;
-    if (!isDevelopmentBuild()) return source;
+    if (!isDevelopmentBuild(this.mode)) return source;
     if (!mergedOptions.enabled) return source;
 
     const filePath = this.resourcePath;

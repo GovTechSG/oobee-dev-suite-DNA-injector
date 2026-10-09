@@ -68,6 +68,17 @@ describe('dev-only gate', () => {
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 
+describe('angular plugin honours config.mode', () => {
+    for (const [name, imp] of [['esm', `const { default: p } = await import('./adapters/angular.js');`], ['cjs', `const p = require('./adapters/angular.cjs');`]]) {
+        for (const [mode, env, want] of [['development', {}, 'INJECTED'], ['production', { NODE_ENV: 'development' }, 'CLEAN']]) {
+            test(`angular (${name}): config.mode=${mode} -> ${want}`, () => {
+                const body = `${imp} const c = p()({ mode: '${mode}' }); out = c.module ? 'data-oobee-path' : SRC;`;
+                assert.equal(run(body, env), want);
+            });
+        }
+    }
+});
+
 describe('webpack loader honours this.mode', () => {
     const loaders = {
         'webpack (esm)': `const { default: l } = await import('./adapters/webpack.js'); const fn = l();`,
@@ -76,10 +87,22 @@ describe('webpack loader honours this.mode', () => {
         'angular (cjs)': `const { webpackLoader: fn } = require('./adapters/angular.cjs');`,
     };
     for (const [name, setup] of Object.entries(loaders)) {
-        for (const [mode, want] of [['production', 'CLEAN'], ['none', 'CLEAN'], ['development', 'INJECTED']]) {
-            test(`${name}: mode=${mode} with NODE_ENV=development -> ${want}`, () => {
+        const force = { OOBEE_DNA_FORCE: '1', OOBEE_DNA_FORCE_ACK: 'i-understand-this-leaks-paths' };
+        const cases = [
+            ['production', 'NODE_ENV=development', { NODE_ENV: 'development' }, 'CLEAN'],
+            ['none', 'NODE_ENV=development', { NODE_ENV: 'development' }, 'CLEAN'],
+            ['production', 'two-key force', { NODE_ENV: 'development', ...force }, 'CLEAN'],
+            ['development', 'NODE_ENV=development', { NODE_ENV: 'development' }, 'INJECTED'],
+            ['development', 'NODE_ENV unset', {}, 'INJECTED'],
+            ['development', 'NODE_ENV=dev', { NODE_ENV: 'dev' }, 'INJECTED'],
+            ['development', 'NODE_ENV=production', { NODE_ENV: 'production' }, 'CLEAN'],
+            ['development', 'CI=true', { CI: 'true' }, 'CLEAN'],
+            ['development', 'VERCEL_ENV=preview', { VERCEL_ENV: 'preview' }, 'CLEAN'],
+        ];
+        for (const [mode, label, env, want] of cases) {
+            test(`${name}: mode=${mode}, ${label} -> ${want}`, () => {
                 const body = `${setup} out = fn.call({ mode: '${mode}', resourcePath: process.cwd() + '/src/A.jsx', getOptions: () => ({}) }, SRC);`;
-                assert.equal(run(body, { NODE_ENV: 'development' }), want);
+                assert.equal(run(body, env), want);
             });
         }
     }
