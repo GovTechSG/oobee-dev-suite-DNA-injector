@@ -18,6 +18,8 @@ const probes = {
         out = p().transform(SRC, process.cwd() + '/src/A.jsx')?.code ?? SRC;`,
     'rollup (cjs)': `const p = require('./adapters/rollup.cjs');
         out = p().transform(SRC, process.cwd() + '/src/A.jsx')?.code ?? SRC;`,
+    'vite (cjs)': `const p = require('./adapters/vite.cjs');
+        out = p().transform(SRC, process.cwd() + '/src/A.jsx')?.code ?? SRC;`,
     'esbuild (esm)': `const { default: p } = await import('./adapters/esbuild.js');
         let cb; p().setup({ onLoad: (_f, fn) => (cb = fn) });
         const fs = await import('node:fs'); const f = process.cwd() + '/test/.tmp-A.jsx';
