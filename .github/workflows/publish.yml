@@ -3,12 +3,13 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Branch or commit SHA to publish from (e.g. master). The package.json version in oobee-genome/ is what lands on npm.'
+        description: 'Commit to publish: "master" or a SHA already on master. The package.json version in oobee-genome/ is what lands on npm.'
         required: true
         type: string
-permissions:
-  contents: write
-  id-token: write
+        default: master
+# No job gets write access by default; only the gated publish job is granted
+# contents:write / id-token:write below.
+permissions: {}
 jobs:
   build:
     # Pin the runner to a specific Ubuntu version rather than the mutable
@@ -16,12 +17,19 @@ jobs:
     # GitHub promotes a new image, which changes the tooling baseline (Node,
     # openssl, curl, git) underneath a credential-bearing publish job.
     runs-on: ubuntu-24.04
+    # Installs and packs code from the chosen ref, so it holds no secrets and
+    # only read access.
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ steps.ref.outputs.sha }}
+      version: ${{ steps.pack.outputs.version }}
     defaults:
       run:
         working-directory: oobee-genome
     steps:
       # Third-party GitHub Actions are pinned to a full commit SHA rather than
-      # the mutable `@v4` tag. This job holds NPM_TOKEN and `id-token: write`
+      # the mutable `@v4` tag. The publish job holds NPM_TOKEN and `id-token: write`
       # for provenance signing, so a repointed `v4` tag would land
       # attacker-controlled JavaScript inside a credential-bearing step.
       # Update the SHA + trailing version comment together at each intended
@@ -29,29 +37,93 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ inputs.release_tag }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Only reviewed code may ship. The workflow file itself is taken from the
+      # dispatch branch, so that must be the default branch too; otherwise an
+      # edited copy of this file on a feature branch could skip these checks.
+      - name: Verify dispatch branch and ref are on the default branch
+        id: ref
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          DISPATCH_REF: ${{ github.ref }}
+        run: |
+          if [ "$DISPATCH_REF" != "refs/heads/${DEFAULT_BRANCH}" ]; then
+            echo "::error::Run this workflow from ${DEFAULT_BRANCH}, not ${DISPATCH_REF}."
+            exit 1
+          fi
+          SHA=$(git rev-parse HEAD)
+          if ! git merge-base --is-ancestor "$SHA" "origin/${DEFAULT_BRANCH}"; then
+            echo "::error::${SHA} is not on ${DEFAULT_BRANCH}; refusing to publish unreviewed code."
+            exit 1
+          fi
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.x'
+
+      - run: npm ci --ignore-scripts
+        continue-on-error: false
+
+      - name: Pack tarball
+        id: pack
+        run: |
+          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+          mkdir -p "$RUNNER_TEMP/pkg"
+          npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP/pkg"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: package
+          path: ${{ runner.temp }}/pkg/*.tgz
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    # Protected environment: required reviewers, deployments limited to the
+    # default branch, and NPM_TOKEN stored as an environment secret so no
+    # other job or branch can read it.
+    environment: npm-publish
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.build.outputs.sha }}
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22.x'
           registry-url: 'https://registry.npmjs.org'
 
-      - run: npm ci
-        continue-on-error: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: package
+          path: ${{ runner.temp }}/pkg
 
+      # Version tags are never force-pushed, so a published release can't be
+      # rewritten. Only the moving `latest` pointer is updated.
       - name: Create and push git tags
-        working-directory: ${{ github.workspace }}
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
         run: |
-          VERSION=$(node -p "require('./oobee-genome/package.json').version")
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -af "${VERSION}" -m "Version ${VERSION}"
-          git push origin "${VERSION}" --force
+          if git ls-remote --exit-code --tags origin "refs/tags/${VERSION}" >/dev/null; then
+            echo "::error::Tag ${VERSION} already exists; bump the version in oobee-genome/package.json."
+            exit 1
+          fi
+          git tag -a "${VERSION}" -m "Version ${VERSION}"
+          git push origin "refs/tags/${VERSION}"
           git tag -af "latest" -m "Latest release ${VERSION}"
-          git push origin "latest" --force
+          git push origin "refs/tags/latest" --force
 
       - name: Publish to npm
-        working-directory: ${{ github.workspace }}
-        run: npm publish --provenance --access public oobee-genome/
+        run: npm publish --provenance --access public --ignore-scripts "$RUNNER_TEMP"/pkg/*.tgz
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
