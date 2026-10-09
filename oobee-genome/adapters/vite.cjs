@@ -1,5 +1,6 @@
 const { injectDNA, shouldTransform } = require('../core/transformer.cjs');
 const { mergeOptions } = require('../core/options.cjs');
+const { isDevelopmentBuild } = require('../core/environment.cjs');
 const { log } = require('../core/utils.cjs');
 
 function oobeeVitePlugin(options = {}) {
@@ -10,6 +11,10 @@ function oobeeVitePlugin(options = {}) {
         apply: 'serve',
         enforce: 'pre',
         transform(code, id) {
+            // `apply: 'serve'` only keeps the plugin out of `vite build`; a dev
+            // server run with NODE_ENV=production or under CI must not inject.
+            // Vite's `--mode` is not passed: `vite --mode staging` is still a dev server.
+            if (!isDevelopmentBuild()) return null;
             if (!mergedOptions.enabled) return null;
             if (!shouldTransform(id, mergedOptions)) return null;
 

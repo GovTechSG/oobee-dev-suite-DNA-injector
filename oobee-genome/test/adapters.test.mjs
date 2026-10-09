@@ -18,6 +18,10 @@ const probes = {
         out = p().transform(SRC, process.cwd() + '/src/A.jsx')?.code ?? SRC;`,
     'rollup (cjs)': `const p = require('./adapters/rollup.cjs');
         out = p().transform(SRC, process.cwd() + '/src/A.jsx')?.code ?? SRC;`,
+    'vite (esm)': `const { default: p } = await import('./adapters/vite.js');
+        out = p().transform(SRC, process.cwd() + '/src/A.jsx')?.code ?? SRC;`,
+    'vite (cjs)': `const p = require('./adapters/vite.cjs');
+        out = p().transform(SRC, process.cwd() + '/src/A.jsx')?.code ?? SRC;`,
     'esbuild (esm)': `const { default: p } = await import('./adapters/esbuild.js');
         let cb; p().setup({ onLoad: (_f, fn) => (cb = fn) });
         const fs = await import('node:fs'); const f = process.cwd() + '/test/.tmp-A.jsx';
@@ -47,6 +51,13 @@ const envs = [
     ['NODE_ENV=production', { NODE_ENV: 'production' }, 'CLEAN'],
     ['NODE_ENV unset', {}, 'CLEAN'],
     ['CI=true even in development', { NODE_ENV: 'development', CI: 'true' }, 'CLEAN'],
+    ['CI=True (AppVeyor casing)', { NODE_ENV: 'development', CI: 'True' }, 'CLEAN'],
+    ['CI= TRUE  (whitespace)', { NODE_ENV: 'development', CI: ' TRUE ' }, 'CLEAN'],
+    ['CI=build number', { NODE_ENV: 'development', CI: '12345' }, 'CLEAN'],
+    ['CONTINUOUS_INTEGRATION=true', { NODE_ENV: 'development', CONTINUOUS_INTEGRATION: 'true' }, 'CLEAN'],
+    ['CI=false', { NODE_ENV: 'development', CI: 'false' }, 'INJECTED'],
+    ['CI=0', { NODE_ENV: 'development', CI: '0' }, 'INJECTED'],
+    ['CI empty', { NODE_ENV: 'development', CI: '' }, 'INJECTED'],
     ['two-key force in production', { NODE_ENV: 'production', OOBEE_DNA_FORCE: '1', OOBEE_DNA_FORCE_ACK: 'i-understand-this-leaks-paths' }, 'INJECTED'],
     ['single-key force is ignored', { NODE_ENV: 'production', OOBEE_DNA_FORCE: '1' }, 'CLEAN'],
 ];
