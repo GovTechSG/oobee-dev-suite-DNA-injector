@@ -35,6 +35,8 @@ function oobeeAngularPlugin(options = {}) {
 function webpackLoader(source) {
     const mergedOptions = mergeOptions({});
 
+    // webpack's mode is authoritative; NODE_ENV in the build shell is not.
+    if (this.mode && this.mode !== 'development') return source;
     if (!isDevelopmentBuild()) return source;
     if (!mergedOptions.enabled) return source;
 

@@ -12,6 +12,8 @@ function oobeeWebpackLoader(options = {}) {
     const enabledForDev = isDevelopmentBuild();
 
     return function loader(source) {
+        // webpack's mode is authoritative; NODE_ENV in the build shell is not.
+        if (this.mode && this.mode !== 'development') return source;
         if (!enabledForDev) return source;
         if (!mergedOptions.enabled) return source;
 

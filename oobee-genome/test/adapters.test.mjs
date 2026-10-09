@@ -67,3 +67,60 @@ describe('dev-only gate', () => {
 
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
+
+describe('webpack loader honours this.mode', () => {
+    const loaders = {
+        'webpack (esm)': `const { default: l } = await import('./adapters/webpack.js'); const fn = l();`,
+        'webpack (cjs)': `const fn = require('./adapters/webpack.cjs');`,
+        'angular (esm)': `const { webpackLoader: fn } = await import('./adapters/angular.js');`,
+        'angular (cjs)': `const { webpackLoader: fn } = require('./adapters/angular.cjs');`,
+    };
+    for (const [name, setup] of Object.entries(loaders)) {
+        for (const [mode, want] of [['production', 'CLEAN'], ['none', 'CLEAN'], ['development', 'INJECTED']]) {
+            test(`${name}: mode=${mode} with NODE_ENV=development -> ${want}`, () => {
+                const body = `${setup} out = fn.call({ mode: '${mode}', resourcePath: process.cwd() + '/src/A.jsx', getOptions: () => ({}) }, SRC);`;
+                assert.equal(run(body, { NODE_ENV: 'development' }), want);
+            });
+        }
+    }
+});
+
+describe('oobee-injector.js runtime gate', async () => {
+    const vm = await import('node:vm');
+    const fs = await import('node:fs');
+    const code = fs.readFileSync(path.join(pkg, 'adapters/oobee-injector.js'), 'utf8');
+    const load = (hostname, scriptAttrs = []) => {
+        const stamped = [];
+        const el = { hasAttribute: () => false, setAttribute: (k) => stamped.push(k), tagName: 'DIV', id: '', className: '' };
+        const window = { location: { hostname, pathname: '/' } };
+        const document = {
+            readyState: 'complete', body: {},
+            currentScript: { hasAttribute: (a) => scriptAttrs.includes(a) },
+            querySelectorAll: () => [el],
+        };
+        class MutationObserver { observe() {} }
+        vm.runInNewContext(code, { window, document, MutationObserver, Node: { ELEMENT_NODE: 1 }, performance: { now: () => 0 }, console: { log() {}, warn() {} } });
+        return { window, stamped };
+    };
+
+    test('production host: no API exposed, nothing stamped', () => {
+        const { window, stamped } = load('example.gov.sg');
+        assert.equal(window.OobeeGenome, undefined);
+        assert.equal(stamped.length, 0);
+    });
+    test('localhost: API exposed and DOM stamped', () => {
+        const { window, stamped } = load('localhost');
+        assert.equal(typeof window.OobeeGenome.enable, 'function');
+        assert.ok(stamped.length > 0);
+    });
+    test('non-local host opted in via script attribute', () => {
+        const { window, stamped } = load('192.168.1.5', ['data-oobee-allow-host']);
+        assert.ok(window.OobeeGenome);
+        assert.ok(stamped.length > 0);
+    });
+    test('API object and config are immutable from page scripts', () => {
+        const { window } = load('localhost');
+        assert.throws(() => { window.OobeeGenome.enable = () => {}; }, TypeError);
+        assert.throws(() => { window.OobeeGenome.config.enabled = false; }, TypeError);
+    });
+});
