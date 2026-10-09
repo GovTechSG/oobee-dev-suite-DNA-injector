@@ -43,7 +43,7 @@ The adapters also refuse to inject outside development, as a backstop in case a 
 | Webpack, Angular | webpack `mode` is `development` (e.g. `--mode development`) and `NODE_ENV` is not `production` |
 | Rollup, esbuild | `NODE_ENV=development` |
 
-All adapters except Vite stay disabled whenever `CI=true`/`CI=1`, `VERCEL_ENV` is `production` or `preview`, or `NEXT_PHASE` is a production phase, even in development. To inject into a local production-mode Rollup/esbuild build anyway, set **both** `OOBEE_DNA_FORCE=1` and `OOBEE_DNA_FORCE_ACK=i-understand-this-leaks-paths`. The CI/Vercel/Next signals still win over this override, and a webpack `production`/`none` build never injects.
+All adapters except Vite stay disabled whenever `CI` or `CONTINUOUS_INTEGRATION` is set to anything other than empty, `false` or `0` (any casing), `VERCEL_ENV` is `production` or `preview`, or `NEXT_PHASE` is a production phase, even in development. To inject into a local production-mode Rollup/esbuild build anyway, set **both** `OOBEE_DNA_FORCE=1` and `OOBEE_DNA_FORCE_ACK=i-understand-this-leaks-paths`. The CI/Vercel/Next signals still win over this override, and a webpack `production`/`none` build never injects.
 
 Other guarantees:
 

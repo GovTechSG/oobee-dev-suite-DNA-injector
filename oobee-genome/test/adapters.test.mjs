@@ -47,6 +47,13 @@ const envs = [
     ['NODE_ENV=production', { NODE_ENV: 'production' }, 'CLEAN'],
     ['NODE_ENV unset', {}, 'CLEAN'],
     ['CI=true even in development', { NODE_ENV: 'development', CI: 'true' }, 'CLEAN'],
+    ['CI=True (AppVeyor casing)', { NODE_ENV: 'development', CI: 'True' }, 'CLEAN'],
+    ['CI= TRUE  (whitespace)', { NODE_ENV: 'development', CI: ' TRUE ' }, 'CLEAN'],
+    ['CI=build number', { NODE_ENV: 'development', CI: '12345' }, 'CLEAN'],
+    ['CONTINUOUS_INTEGRATION=true', { NODE_ENV: 'development', CONTINUOUS_INTEGRATION: 'true' }, 'CLEAN'],
+    ['CI=false', { NODE_ENV: 'development', CI: 'false' }, 'INJECTED'],
+    ['CI=0', { NODE_ENV: 'development', CI: '0' }, 'INJECTED'],
+    ['CI empty', { NODE_ENV: 'development', CI: '' }, 'INJECTED'],
     ['two-key force in production', { NODE_ENV: 'production', OOBEE_DNA_FORCE: '1', OOBEE_DNA_FORCE_ACK: 'i-understand-this-leaks-paths' }, 'INJECTED'],
     ['single-key force is ignored', { NODE_ENV: 'production', OOBEE_DNA_FORCE: '1' }, 'CLEAN'],
 ];

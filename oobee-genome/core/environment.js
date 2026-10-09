@@ -15,7 +15,7 @@
 //
 // Production signals checked (any one returns false):
 //   NODE_ENV=production
-//   CI=true / CI=1                    (any CI runner)
+//   CI / CONTINUOUS_INTEGRATION set to anything but ''/false/0 (any CI runner)
 //   NEXT_PHASE=phase-production-build|phase-production-server  (Next.js)
 //   VERCEL_ENV=production|preview     (Vercel)
 //
@@ -25,6 +25,17 @@
 //
 // A single-var override (as the original next.js adapter had) is too easy
 // to leave set in a staging environment and silently re-enable the leak.
+// CI runners spell the flag differently (`true`, `True`, `1`, a build number),
+// and some only set CONTINUOUS_INTEGRATION. Any value other than an explicit
+// "off" counts as CI.
+function isCiEnvironment() {
+    for (const name of ['CI', 'CONTINUOUS_INTEGRATION']) {
+        const value = String(process.env[name] || '').trim().toLowerCase();
+        if (value !== '' && value !== 'false' && value !== '0') return true;
+    }
+    return false;
+}
+
 function isDevelopmentBuild(bundlerMode) {
     const nodeEnv = String(process.env.NODE_ENV || '').toLowerCase();
     const nextPhase = String(process.env.NEXT_PHASE || '');
@@ -36,7 +47,7 @@ function isDevelopmentBuild(bundlerMode) {
     // deployment).
     if (nextPhase === 'phase-production-build' || nextPhase === 'phase-production-server') return false;
     if (vercelEnv === 'production' || vercelEnv === 'preview') return false;
-    if (process.env.CI === 'true' || process.env.CI === '1') return false;
+    if (isCiEnvironment()) return false;
 
     // A bundler-reported mode (webpack's this.mode / config.mode) is
     // authoritative: a production build never injects, even with the force
