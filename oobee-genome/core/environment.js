@@ -3,11 +3,9 @@
 // injectDNA embeds source-file paths, DOM structure, and source line/column
 // coordinates into every transformed element. That metadata is useful only
 // in local development — shipping it into a production bundle leaks internal
-// layout to any end user who inspects the DOM/source. The next.js adapter
-// and vite.js (`apply: 'serve'`) already enforce a dev-only gate; the
-// rollup, webpack, and angular adapters historically did not, so a consumer
-// who registered them with the default `enabled: true` option would inject
-// the metadata into production builds by default.
+// layout to any end user who inspects the DOM/source. Every adapter runs
+// this gate, including vite on top of `apply: 'serve'` (which only excludes
+// `vite build`, not a dev server under NODE_ENV=production or CI).
 //
 // This helper is the shared gate. It fails *closed*: any positive
 // production signal returns false, and the only way to opt back in from an

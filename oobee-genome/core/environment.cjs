@@ -1,6 +1,6 @@
 // CommonJS twin of environment.js. Keep the two in lockstep — the whole
 // point of this file is to close the fail-open gap in the CJS-consumed
-// adapters (rollup.cjs/webpack.cjs/angular.cjs), so a fix that only lands
+// adapters (rollup/webpack/angular/vite .cjs), so a fix that only lands
 // on the ESM twin would leave the CJS consumers unprotected exactly the
 // way transformer.cjs was.
 // CI runners spell the flag differently (`true`, `True`, `1`, a build number),
