@@ -24,7 +24,6 @@
   const CONFIG = {
     enabled: true,
     attributePrefix: 'data-oobee',
-    devOnly: true,
     verbose: true
   };
 
@@ -40,16 +39,29 @@
   // are routinely used for real internal appliances / staging / intranet
   // hosts (e.g. `dashboard.corp.local`), and stamping them with debug
   // instrumentation would leak internal path/DOM structure to every
-  // authorized viewer. Non-local hosts must opt-in via `OobeeGenome.enable()`.
+  // authorized viewer. A non-local dev host (LAN IP, tunnel) can opt in only
+  // via the markup that loads the script: <script src="oobee-injector.js"
+  // data-oobee-allow-host>. That is read once at load time so in-page scripts
+  // cannot flip it later.
   function isDevEnvironment() {
+    if (window.location && window.location.protocol === 'file:') return true;
     const host = (window.location && window.location.hostname) || '';
     if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1') return true;
     if (host.endsWith('.localhost')) return true;
     return false;
   }
 
+  const loaderScript = document.currentScript;
+  const hostAllowed = isDevEnvironment() ||
+    !!(loaderScript && loaderScript.hasAttribute('data-oobee-allow-host'));
+
   function shouldRun() {
-    return CONFIG.enabled && (!CONFIG.devOnly || isDevEnvironment());
+    return CONFIG.enabled && hostAllowed;
+  }
+
+  // Bail before exposing window.OobeeGenome so no in-page script can enable it.
+  if (!hostAllowed) {
+    return;
   }
 
   // Only initialize once
@@ -156,9 +168,11 @@
   /**
    * Expose API for manual control
    */
-  window.OobeeGenome = {
+  window.OobeeGenome = Object.freeze({
     inject: injectOobeeAttributes,
-    config: CONFIG,
+    get config() {
+      return Object.freeze(Object.assign({}, CONFIG));
+    },
     
     // Enable/disable dynamically
     enable: function() {
@@ -208,13 +222,12 @@
       CONFIG.verbose = bool;
       console.log('Verbose mode:', bool ? 'ON' : 'OFF');
     }
-  };
+  });
 
   // Initialize when DOM is ready. Both the initial pass and the MutationObserver
   // are gated by shouldRun() so devOnly is enforced end-to-end — if someone
   // ships the script to prod by mistake, no elements get tagged and no observer
-  // is installed. `OobeeGenome.enable()` still bypasses this at runtime for
-  // developers who need to opt-in manually on a non-localhost host.
+  // is installed, and window.OobeeGenome is never exposed.
   if (shouldRun()) {
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', () => {

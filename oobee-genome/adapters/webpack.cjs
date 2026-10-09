@@ -7,6 +7,8 @@ module.exports = function oobeeWebpackLoader(source) {
     const mergedOptions = mergeOptions(loaderOptions);
 
     // Fail-closed dev gate — see webpack.js for rationale.
+    // webpack's mode is authoritative; NODE_ENV in the build shell is not.
+    if (this.mode && this.mode !== 'development') return source;
     if (!isDevelopmentBuild()) return source;
     if (!mergedOptions.enabled) return source;
 

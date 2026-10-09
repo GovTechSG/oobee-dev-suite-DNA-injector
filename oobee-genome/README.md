@@ -278,6 +278,8 @@ Add this line before closing `</body>`:
 </html>
 ```
 
+The injector only runs (and only exposes `window.OobeeGenome`) on `file://`, `localhost`, loopback, and `*.localhost`. To use it on another dev host such as a LAN IP, opt in on the script tag: `<script src="oobee-injector.js" data-oobee-allow-host></script>`.
+
 **Step 3: Done!**
 
 - Open your HTML file in a browser (works with `file://` protocol)
