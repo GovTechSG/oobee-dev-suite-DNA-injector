@@ -25,7 +25,7 @@
 //
 // A single-var override (as the original next.js adapter had) is too easy
 // to leave set in a staging environment and silently re-enable the leak.
-function isDevelopmentBuild() {
+function isDevelopmentBuild(bundlerMode) {
     const nodeEnv = String(process.env.NODE_ENV || '').toLowerCase();
     const nextPhase = String(process.env.NEXT_PHASE || '');
     const vercelEnv = String(process.env.VERCEL_ENV || '').toLowerCase();
@@ -38,6 +38,11 @@ function isDevelopmentBuild() {
     if (vercelEnv === 'production' || vercelEnv === 'preview') return false;
     if (process.env.CI === 'true' || process.env.CI === '1') return false;
 
+    // A bundler-reported mode (webpack's this.mode / config.mode) is
+    // authoritative: a production build never injects, even with the force
+    // override, and `webpack --mode development` needs no NODE_ENV.
+    if (bundlerMode !== undefined && bundlerMode !== 'development') return false;
+
     // Two-key opt-in escape hatch. Overrides NODE_ENV so a developer who
     // deliberately wants to inspect a production-mode local build can
     // re-enable the injector by acknowledging what it leaks. Must set BOTH
@@ -49,6 +54,7 @@ function isDevelopmentBuild() {
         return true;
     }
 
+    if (bundlerMode === 'development') return nodeEnv !== 'production';
     return nodeEnv === 'development';
 }
 

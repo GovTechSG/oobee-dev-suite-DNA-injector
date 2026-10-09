@@ -3,7 +3,7 @@
 // adapters (rollup.cjs/webpack.cjs/angular.cjs), so a fix that only lands
 // on the ESM twin would leave the CJS consumers unprotected exactly the
 // way transformer.cjs was.
-function isDevelopmentBuild() {
+function isDevelopmentBuild(bundlerMode) {
     const nodeEnv = String(process.env.NODE_ENV || '').toLowerCase();
     const nextPhase = String(process.env.NEXT_PHASE || '');
     const vercelEnv = String(process.env.VERCEL_ENV || '').toLowerCase();
@@ -12,6 +12,11 @@ function isDevelopmentBuild() {
     if (vercelEnv === 'production' || vercelEnv === 'preview') return false;
     if (process.env.CI === 'true' || process.env.CI === '1') return false;
 
+    // A bundler-reported mode (webpack's this.mode / config.mode) is
+    // authoritative: a production build never injects, even with the force
+    // override, and `webpack --mode development` needs no NODE_ENV.
+    if (bundlerMode !== undefined && bundlerMode !== 'development') return false;
+
     if (
         process.env.OOBEE_DNA_FORCE === '1' &&
         process.env.OOBEE_DNA_FORCE_ACK === 'i-understand-this-leaks-paths'
@@ -19,6 +24,7 @@ function isDevelopmentBuild() {
         return true;
     }
 
+    if (bundlerMode === 'development') return nodeEnv !== 'production';
     return nodeEnv === 'development';
 }
 

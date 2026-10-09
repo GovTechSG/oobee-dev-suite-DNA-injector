@@ -5,13 +5,10 @@ import { log, getRelativePath } from '../core/utils.js';
 
 function oobeeAngularPlugin(options = {}) {
     const mergedOptions = mergeOptions(options);
-    // Fail-closed dev gate — same rationale as rollup.js/webpack.js. Angular
-    // CLI does not expose a dev/prod signal to plugins reliably, so evaluate
-    // the environment ourselves before registering the webpack rule.
-    const enabledForDev = isDevelopmentBuild();
-
+    // Fail-closed dev gate — same rationale as rollup.js/webpack.js. The
+    // registered loader re-checks webpack's per-compilation mode as well.
     return function angularWebpackPlugin(config) {
-        if (!enabledForDev) return config;
+        if (!isDevelopmentBuild(config && config.mode)) return config;
         if (!mergedOptions.enabled) return config;
 
         if (!config.module) config.module = {};
@@ -35,9 +32,7 @@ function oobeeAngularPlugin(options = {}) {
 function webpackLoader(source) {
     const mergedOptions = mergeOptions({});
 
-    // webpack's mode is authoritative; NODE_ENV in the build shell is not.
-    if (this.mode && this.mode !== 'development') return source;
-    if (!isDevelopmentBuild()) return source;
+    if (!isDevelopmentBuild(this.mode)) return source;
     if (!mergedOptions.enabled) return source;
 
     const filePath = this.resourcePath;
