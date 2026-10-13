@@ -31,9 +31,6 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-    defaults:
-      run:
-        working-directory: oobee-genome
     steps:
       # Only run this from the default branch so the committed bump is based
       # on reviewed, merged code rather than an arbitrary fork/branch state.
@@ -41,6 +38,7 @@ jobs:
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           DISPATCH_REF: ${{ github.ref }}
+        working-directory: .
         run: |
           if [ "$DISPATCH_REF" != "refs/heads/${DEFAULT_BRANCH}" ]; then
             echo "::error::Run this workflow from ${DEFAULT_BRANCH}, not ${DISPATCH_REF}."
@@ -51,6 +49,7 @@ jobs:
         if: ${{ inputs.version != '' }}
         env:
           VERSION: ${{ inputs.version }}
+        working-directory: .
         run: |
           if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
             echo "::error::'$VERSION' is not a valid semver version (expected e.g. 2.1.0 or 2.1.0-beta.1)."
@@ -68,8 +67,10 @@ jobs:
           node-version: '22.x'
 
       - run: npm ci --ignore-scripts
+        working-directory: oobee-genome
 
       - name: Bump version (no git tag)
+        working-directory: oobee-genome
         id: bump
         env:
           VERSION_INPUT: ${{ inputs.version }}
@@ -84,6 +85,7 @@ jobs:
           echo "version=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Create branch, commit and push
+        working-directory: oobee-genome
         id: branch
         env:
           NEW_VERSION: ${{ steps.bump.outputs.version }}
