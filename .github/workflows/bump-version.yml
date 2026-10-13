@@ -1,0 +1,111 @@
+name: Bump Package Version
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: >
+          Exact version to set (e.g. 2.1.0 or 2.1.0-beta.1). Overrides
+          bump_type when provided. Leave empty to auto-bump using bump_type.
+        required: false
+        type: string
+      bump_type:
+        description: 'Used only when "version" is left empty.'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: patch
+
+# No job gets write access by default; only the bump job is granted the
+# write scopes it needs to push a branch and open a PR.
+permissions: {}
+
+jobs:
+  bump:
+    # Pin the runner to a specific Ubuntu version for the same reason as
+    # publish.yml / test.yml: `ubuntu-latest` rolls forward silently.
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    defaults:
+      run:
+        working-directory: oobee-genome
+    steps:
+      # Only run this from the default branch so the committed bump is based
+      # on reviewed, merged code rather than an arbitrary fork/branch state.
+      - name: Verify dispatch branch is the default branch
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          DISPATCH_REF: ${{ github.ref }}
+        run: |
+          if [ "$DISPATCH_REF" != "refs/heads/${DEFAULT_BRANCH}" ]; then
+            echo "::error::Run this workflow from ${DEFAULT_BRANCH}, not ${DISPATCH_REF}."
+            exit 1
+          fi
+
+      - name: Validate version input
+        if: ${{ inputs.version != '' }}
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::'$VERSION' is not a valid semver version (expected e.g. 2.1.0 or 2.1.0-beta.1)."
+            exit 1
+          fi
+
+      # Third-party GitHub Actions are pinned to a full commit SHA rather than
+      # a mutable tag, consistent with publish.yml / test.yml.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: true
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.x'
+
+      - run: npm ci --ignore-scripts
+
+      - name: Bump version (no git tag)
+        id: bump
+        env:
+          VERSION_INPUT: ${{ inputs.version }}
+          BUMP_TYPE: ${{ inputs.bump_type }}
+        run: |
+          if [ -n "$VERSION_INPUT" ]; then
+            npm version "$VERSION_INPUT" --no-git-tag-version --allow-same-version
+          else
+            npm version "$BUMP_TYPE" --no-git-tag-version
+          fi
+          NEW_VERSION=$(node -p "require('./package.json').version")
+          echo "version=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Create branch, commit and push
+        id: branch
+        env:
+          NEW_VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          BRANCH="bump-version/${NEW_VERSION}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add package.json package-lock.json
+          git commit -m "chore: bump oobee-genome version to ${NEW_VERSION}"
+          git push origin "$BRANCH"
+          echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
+
+      - name: Open pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEW_VERSION: ${{ steps.bump.outputs.version }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          gh pr create \
+            --title "chore: bump oobee-genome version to ${NEW_VERSION}" \
+            --body "Bumps \`oobee-genome/package.json\` version to \`${NEW_VERSION}\`. No git tag is created by this workflow — tagging happens in the separate publish workflow once this is merged and published." \
+            --base "$DEFAULT_BRANCH" \
+            --head "$BRANCH"
