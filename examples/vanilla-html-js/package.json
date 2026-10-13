@@ -17,7 +17,7 @@
   "author": "Oobee Team",
   "license": "ISC",
   "devDependencies": {
-    "esbuild": "^0.21.0",
+    "esbuild": "^0.28.1",
     "http-server": "^14.1.1",
     "@govtechsg/oobee-genome": "2.0.4"
   }
