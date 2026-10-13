@@ -122,7 +122,21 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "${VERSION}" -m "Version ${VERSION}"
-          git push origin "refs/tags/${VERSION}"
+          HEAD_SHA=$(git rev-parse HEAD)
+          # Re-runs must not fail on a version tag that already exists. Skip it
+          # when it points at this commit; refuse if it points anywhere else.
+          REMOTE_TAG_SHA=$(git ls-remote origin "refs/tags/${VERSION}^{}" | cut -f1)
+          if [ -z "$REMOTE_TAG_SHA" ]; then
+            REMOTE_TAG_SHA=$(git ls-remote origin "refs/tags/${VERSION}" | cut -f1)
+          fi
+          if [ -z "$REMOTE_TAG_SHA" ]; then
+            git tag -a "${VERSION}" -m "Version ${VERSION}"
+            git push origin "refs/tags/${VERSION}"
+          elif [ "$REMOTE_TAG_SHA" = "$HEAD_SHA" ]; then
+            echo "Tag ${VERSION} already exists at ${HEAD_SHA}; skipping."
+          else
+            echo "::error::Tag ${VERSION} already exists at ${REMOTE_TAG_SHA}, not ${HEAD_SHA}. Not overwriting a release tag."
+            exit 1
+          fi
           git tag -af "latest" -m "Latest release ${VERSION}"
           git push origin "refs/tags/latest" --force
