@@ -137,6 +137,60 @@ describe('injection output', () => {
 });
 
 describe('emitted path', () => {
+    test('a configured repository root preserves nested application paths in ESM and CJS', () => {
+        const repository = path.resolve(root, '..');
+        for (const transformer of [esm, cjs]) {
+            for (const file of ['frontend-app/app/page.tsx', 'frontend-app/app/sachin/page.tsx']) {
+                const absoluteFile = path.join(repository, file);
+                const out = transformer.injectDNA('const Page = () => <main />;', absoluteFile, { pathRoot: repository });
+                const emitted = jsxAttrs(out)[0]['data-oobee-path'];
+                assert.equal(emitted, file);
+                assert.equal(path.resolve(repository, emitted), absoluteFile);
+                assert.ok(!out.includes(repository));
+            }
+        }
+    });
+
+    test('a relative pathRoot is resolved against the build working directory', () => {
+        const file = path.resolve(root, '..', 'frontend-app/app/page.tsx');
+        for (const transformer of [esm, cjs]) {
+            const out = transformer.injectDNA('const Page = () => <main />;', file, { pathRoot: '..' });
+            assert.equal(jsxAttrs(out)[0]['data-oobee-path'], 'frontend-app/app/page.tsx');
+        }
+    });
+
+    test('a configured root is applied to HTML, Vue and createElement output', () => {
+        const repository = path.resolve(root, '..');
+        for (const [code, file] of [
+            ['<main>Hello</main>', 'public/index.html'],
+            ['<template><main>Hello</main></template>', 'src/App.vue'],
+            ["const a = React.createElement('main', null);", 'src/App.js'],
+        ]) {
+            const relativeFile = `frontend-app/${file}`;
+            const absoluteFile = path.join(repository, relativeFile);
+            const output = esm.injectDNA(code, absoluteFile, { pathRoot: repository });
+            assert.ok(output.includes(relativeFile));
+            assert.ok(!output.includes(repository));
+            assert.equal(cjs.injectDNA(code, absoluteFile, { pathRoot: repository }), output);
+        }
+    });
+
+    test('files outside a configured root still expose only their basename', () => {
+        for (const transformer of [esm, cjs]) {
+            const out = transformer.injectDNA('const A = () => <main />;', at('other-app/Secret.tsx'), { pathRoot: at('selected-app') });
+            assert.equal(jsxAttrs(out)[0]['data-oobee-path'], 'Secret.tsx');
+            assert.ok(!out.includes('other-app'));
+        }
+    });
+
+    test('an invalid pathRoot is rejected', () => {
+        for (const transformer of [esm, cjs]) {
+            for (const pathRoot of ['', ' ', null, 123]) {
+                assert.throws(() => transformer.injectDNA('const A = () => <main />;', at('src/App.tsx'), { pathRoot }), /pathRoot/);
+            }
+        }
+    });
+
     test('is project-relative with forward slashes, never the absolute host path', () => {
         const out = esm.injectDNA('const a = <div />;', at('src/deep/A.jsx'));
         assert.equal(jsxAttrs(out)[0]['data-oobee-path'], 'src/deep/A.jsx');
