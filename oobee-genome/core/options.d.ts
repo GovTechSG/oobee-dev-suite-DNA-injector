@@ -7,6 +7,10 @@ export interface OobeeOptions {
     blacklist?: string[];
     /** Prefix used for the injected data attributes. Defaults to `"data-oobee"`. */
     attributePrefix?: string;
+    /** Base directory for emitted source paths. Defaults to the build working directory.
+     * Set to the repository root when the editor opens a repository containing nested apps.
+     */
+    pathRoot?: string;
     /** Enable or disable the transformation entirely. Defaults to `true`. */
     enabled?: boolean;
     /** Print a log line for every transformed file. Defaults to `false`. */
