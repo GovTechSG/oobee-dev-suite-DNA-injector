@@ -184,6 +184,68 @@ describe('emitted path', () => {
         }
     });
 
+    const emitFrom = (cwd, file) => {
+        process.chdir(cwd);
+        try {
+            return jsxAttrs(esm.injectDNA('const a = <div />;', file))[0];
+        } finally {
+            process.chdir(root);
+        }
+    };
+
+    test('symlinked checkout: cwd and bundler id on different sides of the link', () => {
+        const real = path.join(path.dirname(root), 'linked-repo');
+        fs.mkdirSync(path.join(real, '.git'), { recursive: true });
+        fs.mkdirSync(path.join(real, 'src'), { recursive: true });
+        fs.writeFileSync(path.join(real, 'src', 'App.tsx'), '');
+        const link = path.join(path.dirname(root), 'linked-alias');
+        // 'junction' needs no admin rights on Windows and is ignored elsewhere.
+        fs.symlinkSync(real, link, 'junction');
+        try {
+            for (const [cwd, file] of [
+                [link, path.join(real, 'src', 'App.tsx')],
+                [real, path.join(link, 'src', 'App.tsx')],
+                [link, path.join(link, 'src', 'App.tsx')],
+            ]) {
+                const a = emitFrom(cwd, file);
+                assert.equal(a['data-oobee-path'], 'src/App.tsx', `${cwd} / ${file}`);
+                assert.equal(a['data-oobee-repo'], 'linked-repo');
+            }
+        } finally {
+            fs.rmSync(link, { force: true });
+        }
+    });
+
+    test('case-only mismatch on a case-insensitive volume stays project-relative', (t) => {
+        const file = path.join(root, 'src', 'Case.tsx');
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, '');
+        const shouted = path.join(path.dirname(file).toUpperCase(), path.basename(file));
+        if (!fs.existsSync(shouted)) return t.skip('case-sensitive volume');
+        const a = jsxAttrs(esm.injectDNA('const a = <div />;', shouted))[0];
+        assert.equal(a['data-oobee-path'], 'src/Case.tsx');
+    });
+
+    test('a dotfiles repo at the home directory is not used as the project root', () => {
+        const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'genome-home-')));
+        fs.mkdirSync(path.join(home, '.git'));
+        const project = path.join(home, 'code', 'site');
+        fs.mkdirSync(project, { recursive: true });
+        const saved = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+        process.env.HOME = home;
+        process.env.USERPROFILE = home;
+        try {
+            const a = emitFrom(project, path.join(project, 'src', 'App.tsx'));
+            assert.equal(a['data-oobee-repo'], 'site');
+            assert.equal(a['data-oobee-path'], 'src/App.tsx');
+        } finally {
+            for (const [k, v] of Object.entries(saved)) {
+                if (v === undefined) delete process.env[k];
+                else process.env[k] = v;
+            }
+        }
+    });
+
     test('Dev Suite matcher resolves the emitted path (exact or suffix)', () => {
         // Mirrors matchesPath in oobee-dev-suite-vscode-oss src/dynamicScanner.ts.
         const norm = (v) => v.replace(/\\/g, '/');

@@ -1,6 +1,7 @@
 import { createRequire } from 'module';
-import { existsSync } from 'fs';
-import { basename, dirname, join, relative, resolve, sep } from 'path';
+import { existsSync, realpathSync } from 'fs';
+import { homedir } from 'os';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path';
 
 const require = createRequire(import.meta.url);
 const { parse } = require('@babel/parser');
@@ -53,12 +54,24 @@ function getCleanSourcePath(filePath) {
 // folder name is emitted, never its absolute location.
 const projectRootCache = new Map();
 
-function findProjectRoot(cwd = process.cwd()) {
+function samePath(a, b) {
+    return relative(a, b) === '';
+}
+
+// A dotfiles repo at the home directory must not become the project root: it
+// would emit the OS username as the repo name.
+function isHomeAbove(dir, start, home) {
+    return Boolean(home) && samePath(dir, home) && !samePath(start, home);
+}
+
+function findProjectRoot(cwd = process.cwd(), home = homedir()) {
     const start = resolve(cwd);
-    if (projectRootCache.has(start)) return projectRootCache.get(start);
+    const key = `${start}\0${home}`;
+    if (projectRootCache.has(key)) return projectRootCache.get(key);
 
     let root = start;
     for (let dir = start; ; dir = dirname(dir)) {
+        if (isHomeAbove(dir, start, home)) break;
         if (existsSync(join(dir, '.git'))) {
             root = dir;
             break;
@@ -66,7 +79,7 @@ function findProjectRoot(cwd = process.cwd()) {
         if (dirname(dir) === dir) break;
     }
 
-    projectRootCache.set(start, root);
+    projectRootCache.set(key, root);
     return root;
 }
 
@@ -74,15 +87,32 @@ function getRepoName(root = findProjectRoot()) {
     return basename(root) || '.';
 }
 
-// Files outside the project collapse to their basename so a `..` chain cannot
-// re-leak parent directories.
-function getEmittedPath(absolutePath, root = findProjectRoot()) {
-    const rel = relative(root, absolutePath);
-    if (!rel) return '.';
-    if (rel === '..' || rel.startsWith('..' + sep) || resolve(rel) === rel) {
-        const parts = absolutePath.split(/[\\/]/);
-        return parts[parts.length - 1] || rel;
+function realpathOrSelf(p) {
+    try {
+        return realpathSync.native(p);
+    } catch {
+        return p;
     }
+}
+
+function relativeInside(root, absolutePath) {
+    const rel = relative(root, absolutePath);
+    if (rel === '..' || rel.startsWith('..' + sep) || isAbsolute(rel)) return null;
+    return rel;
+}
+
+// Bundler ids and cwd can disagree on symlinks (pnpm, linked checkouts, macOS
+// /tmp -> /private/tmp) or letter case (case-insensitive volumes), so retry on
+// canonical paths before deciding a file is outside the project. Files outside
+// collapse to their basename so a `..` chain cannot re-leak parent directories.
+function getEmittedPath(absolutePath, root = findProjectRoot()) {
+    let rel = relativeInside(root, absolutePath);
+    if (rel === null) rel = relativeInside(realpathOrSelf(root), realpathOrSelf(absolutePath));
+    if (rel === null) {
+        const parts = absolutePath.split(/[\\/]/);
+        return parts[parts.length - 1] || '.';
+    }
+    if (!rel) return '.';
     return rel.split(sep).join('/');
 }
 
