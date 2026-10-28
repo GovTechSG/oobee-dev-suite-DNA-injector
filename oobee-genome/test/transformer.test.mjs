@@ -2,6 +2,8 @@
 // performance, dev-only gating, and the attribute contract Dev Suite reads.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { parse } from '@babel/parser';
@@ -10,7 +12,12 @@ import parse5 from 'parse5';
 const require = createRequire(import.meta.url);
 const esm = await import('../core/transformer.js');
 const cjs = require('../core/transformer.cjs');
-const root = process.cwd();
+// Run inside a throwaway git repo so emitted paths don't depend on where this
+// package happens to sit in its own checkout.
+const REPO = 'my-app';
+const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'genome-'))) + path.sep + REPO;
+fs.mkdirSync(path.join(root, '.git'), { recursive: true });
+process.chdir(root);
 const at = (rel) => path.join(root, rel);
 
 const parseJsx = (code, file = 'x.tsx') =>
@@ -50,7 +57,7 @@ describe('injection output', () => {
         const out = esm.injectDNA(src, at('src/App.tsx'));
         const attrs = jsxAttrs(out);
         assert.deepEqual(attrs.map((a) => a.tag), ['div', 'Button', 'span']);
-        assert.deepEqual(attrs[0], { tag: 'div', 'data-oobee-path': 'src/App.tsx', 'data-oobee-line': '2', 'data-oobee-column': '3' });
+        assert.deepEqual(attrs[0], { tag: 'div', 'data-oobee-repo': REPO, 'data-oobee-path': 'src/App.tsx', 'data-oobee-line': '2', 'data-oobee-column': '3' });
         assert.equal(attrs[1]['data-oobee-path'], undefined);
         assert.equal(attrs[2]['data-oobee-line'], '4');
     });
@@ -92,7 +99,7 @@ describe('injection output', () => {
         const body = out.replace('export { el };', 'return el;');
         const el = new Function('document', body)({ createElement: () => fakeEl });
         assert.equal(el, fakeEl);
-        assert.deepEqual(set, { 'data-oobee-path': 'src/dom.js', 'data-oobee-line': '1', 'data-oobee-column': '12' });
+        assert.deepEqual(set, { 'data-oobee-repo': REPO, 'data-oobee-path': 'src/dom.js', 'data-oobee-line': '1', 'data-oobee-column': '12' });
     });
 
     test('HTML: real start tags only, comments and text untouched', () => {
@@ -101,7 +108,7 @@ describe('injection output', () => {
         assert.ok(out.startsWith('<!-- <fake> -->'));
         const attrs = htmlAttrs(out).filter((a) => a['data-oobee-path']);
         assert.equal(attrs.length, 2);
-        assert.deepEqual(attrs[1], { 'data-oobee-path': 'public/index.html', 'data-oobee-line': '3', 'data-oobee-column': '3' });
+        assert.deepEqual(attrs[1], { 'data-oobee-repo': REPO, 'data-oobee-path': 'public/index.html', 'data-oobee-line': '3', 'data-oobee-column': '3' });
     });
 
     test('Vue: only template elements are tagged; script and components left alone', () => {
@@ -150,6 +157,95 @@ describe('emitted path', () => {
         assert.ok(!out.includes('secret-home'));
     });
 
+    test('a monorepo package built from its own folder emits the repo-root-relative path', () => {
+        const pkg = path.join(root, 'apps', 'web');
+        fs.mkdirSync(pkg, { recursive: true });
+        process.chdir(pkg);
+        try {
+            const [a] = jsxAttrs(cjs.injectDNA('const a = <div />;', path.join(pkg, 'src/App.tsx')));
+            assert.equal(a['data-oobee-repo'], REPO);
+            assert.equal(a['data-oobee-path'], 'apps/web/src/App.tsx');
+            assert.ok(!JSON.stringify(a).includes(path.dirname(root)));
+        } finally {
+            process.chdir(root);
+        }
+    });
+
+    test('without a git repo the build directory is the root', () => {
+        const bare = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'genome-bare-')));
+        if (fs.existsSync(path.join(path.dirname(bare), '.git'))) return;
+        process.chdir(bare);
+        try {
+            const [a] = jsxAttrs(esm.injectDNA('const a = <div />;', path.join(bare, 'src/App.tsx')));
+            assert.equal(a['data-oobee-repo'], path.basename(bare));
+            assert.equal(a['data-oobee-path'], 'src/App.tsx');
+        } finally {
+            process.chdir(root);
+        }
+    });
+
+    const emitFrom = (cwd, file) => {
+        process.chdir(cwd);
+        try {
+            return jsxAttrs(esm.injectDNA('const a = <div />;', file))[0];
+        } finally {
+            process.chdir(root);
+        }
+    };
+
+    test('symlinked checkout: cwd and bundler id on different sides of the link', () => {
+        const real = path.join(path.dirname(root), 'linked-repo');
+        fs.mkdirSync(path.join(real, '.git'), { recursive: true });
+        fs.mkdirSync(path.join(real, 'src'), { recursive: true });
+        fs.writeFileSync(path.join(real, 'src', 'App.tsx'), '');
+        const link = path.join(path.dirname(root), 'linked-alias');
+        // 'junction' needs no admin rights on Windows and is ignored elsewhere.
+        fs.symlinkSync(real, link, 'junction');
+        try {
+            for (const [cwd, file] of [
+                [link, path.join(real, 'src', 'App.tsx')],
+                [real, path.join(link, 'src', 'App.tsx')],
+                [link, path.join(link, 'src', 'App.tsx')],
+            ]) {
+                const a = emitFrom(cwd, file);
+                assert.equal(a['data-oobee-path'], 'src/App.tsx', `${cwd} / ${file}`);
+                assert.equal(a['data-oobee-repo'], 'linked-repo');
+            }
+        } finally {
+            fs.rmSync(link, { force: true });
+        }
+    });
+
+    test('case-only mismatch on a case-insensitive volume stays project-relative', (t) => {
+        const file = path.join(root, 'src', 'Case.tsx');
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, '');
+        const shouted = path.join(path.dirname(file).toUpperCase(), path.basename(file));
+        if (!fs.existsSync(shouted)) return t.skip('case-sensitive volume');
+        const a = jsxAttrs(esm.injectDNA('const a = <div />;', shouted))[0];
+        assert.equal(a['data-oobee-path'], 'src/Case.tsx');
+    });
+
+    test('a dotfiles repo at the home directory is not used as the project root', () => {
+        const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'genome-home-')));
+        fs.mkdirSync(path.join(home, '.git'));
+        const project = path.join(home, 'code', 'site');
+        fs.mkdirSync(project, { recursive: true });
+        const saved = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+        process.env.HOME = home;
+        process.env.USERPROFILE = home;
+        try {
+            const a = emitFrom(project, path.join(project, 'src', 'App.tsx'));
+            assert.equal(a['data-oobee-repo'], 'site');
+            assert.equal(a['data-oobee-path'], 'src/App.tsx');
+        } finally {
+            for (const [k, v] of Object.entries(saved)) {
+                if (v === undefined) delete process.env[k];
+                else process.env[k] = v;
+            }
+        }
+    });
+
     test('Dev Suite matcher resolves the emitted path (exact or suffix)', () => {
         // Mirrors matchesPath in oobee-dev-suite-vscode-oss src/dynamicScanner.ts.
         const norm = (v) => v.replace(/\\/g, '/');
@@ -173,7 +269,7 @@ describe('escaping of hostile file names', () => {
         test(`JSX attribute keeps ${JSON.stringify(name)} as one literal value`, () => {
             const out = esm.injectDNA('const a = <div id="k" />;', at(`src/${name}`));
             const [a] = jsxAttrs(out);
-            assert.deepEqual(Object.keys(a).sort(), ['data-oobee-column', 'data-oobee-line', 'data-oobee-path', 'id', 'tag']);
+            assert.deepEqual(Object.keys(a).sort(), ['data-oobee-column', 'data-oobee-line', 'data-oobee-path', 'data-oobee-repo', 'id', 'tag']);
             assert.ok(!/onload/.test(Object.keys(a).join()));
         });
 
@@ -182,13 +278,13 @@ describe('escaping of hostile file names', () => {
             let props;
             new Function('React', out)({ createElement: (_t, p) => (props = p) });
             assert.equal(props['data-oobee-path'], `src/${name}`.split(path.sep).join('/'));
-            assert.deepEqual(Object.keys(props).length, 3);
+            assert.deepEqual(Object.keys(props).length, 4);
         });
 
         test(`HTML attribute keeps ${JSON.stringify(name)} as one value`, () => {
             const out = esm.injectDNA('<div></div>', at(`src/${name.replace('.jsx', '.html')}`));
             const [a] = htmlAttrs(out);
-            assert.deepEqual(Object.keys(a).sort(), ['data-oobee-column', 'data-oobee-line', 'data-oobee-path']);
+            assert.deepEqual(Object.keys(a).sort(), ['data-oobee-column', 'data-oobee-line', 'data-oobee-path', 'data-oobee-repo']);
         });
     }
 

@@ -47,7 +47,7 @@ All adapters stay disabled whenever `CI` or `CONTINUOUS_INTEGRATION` is set to a
 
 Other guarantees:
 
-- `data-oobee-path` is **project-relative** (e.g. `src/App.tsx`), resolved against the directory the build runs in. Your username and absolute directory layout are never embedded. Files outside the project are reduced to their file name.
+- `data-oobee-path` is **relative to the git repository root** containing the directory the build runs in (or to that directory itself when it is not inside a git repo), e.g. `src/App.tsx`, or `apps/web/src/App.tsx` for a monorepo package. `data-oobee-repo` carries the repository folder name (e.g. `my-app`) so Oobee Dev Suite can pick the right folder in a multi-root workspace. Your username and absolute directory layout are never embedded. Files outside the repository are reduced to their file name.
 - File names are escaped for each output context (HTML/JSX attributes, JavaScript strings), so a file named e.g. `x" onload="….tsx` cannot inject markup or code.
 - `attributePrefix` must be a plain attribute name (letters, digits, `-`); anything else throws.
 - Line/column lookups are linear in file size, so very large files do not stall the dev server.
@@ -418,6 +418,7 @@ Before starting a scan, confirm that oobee-genome is actually injecting source-l
 
    ```html
    <input
+     data-oobee-repo="my-app"
      data-oobee-path="src/App.tsx"
      data-oobee-line="25"
      data-oobee-column="17"
@@ -426,7 +427,8 @@ Before starting a scan, confirm that oobee-genome is actually injecting source-l
 
    You should see:
 
-   - `data-oobee-path`: the source file path, relative to the project root
+   - `data-oobee-repo`: the name of the repository folder the file belongs to
+   - `data-oobee-path`: the source file path, relative to the repository root
    - `data-oobee-line`: the original source line number
    - `data-oobee-column`: the original source column number
 

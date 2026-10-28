@@ -1,5 +1,7 @@
 import { createRequire } from 'module';
-import { relative, resolve, sep } from 'path';
+import { existsSync, realpathSync } from 'fs';
+import { homedir } from 'os';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path';
 
 const require = createRequire(import.meta.url);
 const { parse } = require('@babel/parser');
@@ -46,17 +48,71 @@ function getCleanSourcePath(filePath) {
     return resolve(String(filePath).split('?')[0]);
 }
 
-// The emitted path is project-relative so the OS username / CI layout is
-// never baked into the DOM. Files outside the project collapse to their
-// basename so a `..` chain cannot re-leak parent directories. Dev Suite
-// resolves these relative paths against the workspace root.
-function getEmittedPath(absolutePath) {
-    const rel = relative(resolve(process.cwd()), absolutePath);
-    if (!rel) return '.';
-    if (rel === '..' || rel.startsWith('..' + sep) || resolve(rel) === rel) {
-        const parts = absolutePath.split(/[\\/]/);
-        return parts[parts.length - 1] || rel;
+// The emitted root is the git repo containing the build's cwd (falling back to
+// cwd), so a monorepo package still reports `apps/web/src/App.tsx` and Dev
+// Suite can locate it whichever folder of the repo is open. Only the repo's
+// folder name is emitted, never its absolute location.
+const projectRootCache = new Map();
+
+function samePath(a, b) {
+    return relative(a, b) === '';
+}
+
+// A dotfiles repo at the home directory must not become the project root: it
+// would emit the OS username as the repo name.
+function isHomeAbove(dir, start, home) {
+    return Boolean(home) && samePath(dir, home) && !samePath(start, home);
+}
+
+function findProjectRoot(cwd = process.cwd(), home = homedir()) {
+    const start = resolve(cwd);
+    const key = `${start}\0${home}`;
+    if (projectRootCache.has(key)) return projectRootCache.get(key);
+
+    let root = start;
+    for (let dir = start; ; dir = dirname(dir)) {
+        if (isHomeAbove(dir, start, home)) break;
+        if (existsSync(join(dir, '.git'))) {
+            root = dir;
+            break;
+        }
+        if (dirname(dir) === dir) break;
     }
+
+    projectRootCache.set(key, root);
+    return root;
+}
+
+function getRepoName(root = findProjectRoot()) {
+    return basename(root) || '.';
+}
+
+function realpathOrSelf(p) {
+    try {
+        return realpathSync.native(p);
+    } catch {
+        return p;
+    }
+}
+
+function relativeInside(root, absolutePath) {
+    const rel = relative(root, absolutePath);
+    if (rel === '..' || rel.startsWith('..' + sep) || isAbsolute(rel)) return null;
+    return rel;
+}
+
+// Bundler ids and cwd can disagree on symlinks (pnpm, linked checkouts, macOS
+// /tmp -> /private/tmp) or letter case (case-insensitive volumes), so retry on
+// canonical paths before deciding a file is outside the project. Files outside
+// collapse to their basename so a `..` chain cannot re-leak parent directories.
+function getEmittedPath(absolutePath, root = findProjectRoot()) {
+    let rel = relativeInside(root, absolutePath);
+    if (rel === null) rel = relativeInside(realpathOrSelf(root), realpathOrSelf(absolutePath));
+    if (rel === null) {
+        const parts = absolutePath.split(/[\\/]/);
+        return parts[parts.length - 1] || '.';
+    }
+    if (!rel) return '.';
     return rel.split(sep).join('/');
 }
 
@@ -192,6 +248,7 @@ function shouldInjectJsxElement(openingElement, tagName, options) {
 // Avoid double-injecting files that have already gone through Genome.
 function hasJsxDnaAttribute(openingElement, prefix) {
     const wanted = new Set([
+        `${prefix}-repo`,
         `${prefix}-path`,
         `${prefix}-line`,
         `${prefix}-column`
@@ -217,6 +274,7 @@ function getStringPropertyName(key) {
 // Spread props are intentionally ignored because their runtime keys are unknown.
 function hasObjectDnaProperty(objectExpression, prefix) {
     const wanted = new Set([
+        `${prefix}-repo`,
         `${prefix}-path`,
         `${prefix}-line`,
         `${prefix}-column`
@@ -232,6 +290,7 @@ function hasObjectDnaProperty(objectExpression, prefix) {
 // name-bearing objects, currently HTML parse5 nodes and Vue template props.
 function hasAttributeName(attributes, prefix) {
     const wanted = new Set([
+        `${prefix}-repo`,
         `${prefix}-path`,
         `${prefix}-line`,
         `${prefix}-column`
@@ -298,32 +357,35 @@ function isNullishProps(node) {
 }
 
 // Build JSX/HTML-style attributes for insertion after a tag name:
-// <button data-oobee-path="..." data-oobee-line="..." ...>
-function getJsxAttributes(lineIndex, offset, sourcePath, prefix) {
+// <button data-oobee-repo="..." data-oobee-path="..." data-oobee-line="..." ...>
+function getJsxAttributes(lineIndex, offset, source, prefix) {
     const pos = positionFromIndex(lineIndex, offset);
     return (
-        ` ${prefix}-path="${encodeHtmlAttr(sourcePath)}"` +
+        ` ${prefix}-repo="${encodeHtmlAttr(source.repo)}"` +
+        ` ${prefix}-path="${encodeHtmlAttr(source.path)}"` +
         ` ${prefix}-line="${pos.line}"` +
         ` ${prefix}-column="${pos.column}"`
     );
 }
 
 // Build object-literal props for React.createElement:
-// { 'data-oobee-path': "...", 'data-oobee-line': "...", ... }
-function getObjectAttributes(lineIndex, offset, sourcePath, prefix) {
+// { 'data-oobee-repo': "...", 'data-oobee-path': "...", 'data-oobee-line': "...", ... }
+function getObjectAttributes(lineIndex, offset, source, prefix) {
     const pos = positionFromIndex(lineIndex, offset);
     return (
-        ` '${prefix}-path': ${encodeJsString(sourcePath)},` +
+        ` '${prefix}-repo': ${encodeJsString(source.repo)},` +
+        ` '${prefix}-path': ${encodeJsString(source.path)},` +
         ` '${prefix}-line': "${pos.line}",` +
         ` '${prefix}-column': "${pos.column}",`
     );
 }
 
 // Build imperative DOM metadata setters for document.createElement wrappers.
-function getSetAttributeStatements(lineIndex, offset, sourcePath, prefix) {
+function getSetAttributeStatements(lineIndex, offset, source, prefix) {
     const pos = positionFromIndex(lineIndex, offset);
     return [
-        `__oobeeEl.setAttribute(${JSON.stringify(`${prefix}-path`)}, ${JSON.stringify(sourcePath)});`,
+        `__oobeeEl.setAttribute(${JSON.stringify(`${prefix}-repo`)}, ${JSON.stringify(source.repo)});`,
+        `__oobeeEl.setAttribute(${JSON.stringify(`${prefix}-path`)}, ${JSON.stringify(source.path)});`,
         `__oobeeEl.setAttribute(${JSON.stringify(`${prefix}-line`)}, ${JSON.stringify(String(pos.line))});`,
         `__oobeeEl.setAttribute(${JSON.stringify(`${prefix}-column`)}, ${JSON.stringify(String(pos.column))});`
     ].join(' ');
@@ -337,7 +399,7 @@ function getSetAttributeStatements(lineIndex, offset, sourcePath, prefix) {
 // shouldInjectJsxElement; React.createElement is handled only when the first
 // argument is a string tag. Edits are collected as source offsets and applied
 // from right to left with MagicString so earlier offsets stay stable.
-function injectReactDNA(code, sourcePath, options, parsePath = sourcePath) {
+function injectReactDNA(code, source, options, parsePath) {
     const ast = parseJavaScriptLike(code, parsePath);
     const lineIndex = buildLineIndex(code);
     const prefix = options.attributePrefix;
@@ -352,7 +414,7 @@ function injectReactDNA(code, sourcePath, options, parsePath = sourcePath) {
             edits.push({
                 start: node.name.end,
                 end: node.name.end,
-                content: getJsxAttributes(lineIndex, node.start, sourcePath, prefix)
+                content: getJsxAttributes(lineIndex, node.start, source, prefix)
             });
             return;
         }
@@ -370,7 +432,7 @@ function injectReactDNA(code, sourcePath, options, parsePath = sourcePath) {
             if (!tagName || options.blacklist.includes(tagName)) return;
 
             const props = node.arguments[1];
-            const attrs = getObjectAttributes(lineIndex, node.start, sourcePath, prefix);
+            const attrs = getObjectAttributes(lineIndex, node.start, source, prefix);
 
             if (!props) {
                 edits.push({
@@ -409,7 +471,7 @@ function injectReactDNA(code, sourcePath, options, parsePath = sourcePath) {
                 end: node.end,
                 content:
                     `(() => { const __oobeeEl = ${originalCall}; ` +
-                    `${getSetAttributeStatements(lineIndex, node.start, sourcePath, prefix)} ` +
+                    `${getSetAttributeStatements(lineIndex, node.start, source, prefix)} ` +
                     'return __oobeeEl; })()'
             });
         }
@@ -433,7 +495,7 @@ function injectReactDNA(code, sourcePath, options, parsePath = sourcePath) {
 
 // HTML transformer for standalone templates. parse5 gives source offsets for
 // real start tags, so the transform can skip comments/text and preserve layout.
-function injectHtmlDNA(code, sourcePath, options) {
+function injectHtmlDNA(code, source, options) {
     const ast = parse5.parseFragment(code, { sourceCodeLocationInfo: true });
     const lineIndex = buildLineIndex(code);
     const prefix = options.attributePrefix;
@@ -447,7 +509,7 @@ function injectHtmlDNA(code, sourcePath, options) {
             if (!options.blacklist.includes(node.tagName) && !hasAttributeName(attrs, prefix)) {
                 edits.push({
                     start: location.startOffset + 1 + node.tagName.length,
-                    content: getJsxAttributes(lineIndex, location.startOffset, sourcePath, prefix)
+                    content: getJsxAttributes(lineIndex, location.startOffset, source, prefix)
                 });
             }
         }
@@ -471,7 +533,7 @@ function injectHtmlDNA(code, sourcePath, options) {
 // Vue single-file component transformer. Only the <template> block is edited;
 // script/style content is left alone. Vue component tags are currently treated
 // by the Vue compiler's element kind, while normal rendered elements are tagged.
-function injectVueDNA(code, sourcePath, options) {
+function injectVueDNA(code, source, options) {
     const parsed = parseVueSfc(code);
     const template = parsed.descriptor && parsed.descriptor.template;
     if (!template) return code;
@@ -489,7 +551,7 @@ function injectVueDNA(code, sourcePath, options) {
                 const absoluteStart = baseOffset + node.loc.start.offset;
                 edits.push({
                     start: absoluteStart + 1 + node.tag.length,
-                    content: getJsxAttributes(lineIndex, absoluteStart, sourcePath, prefix)
+                    content: getJsxAttributes(lineIndex, absoluteStart, source, prefix)
                 });
             }
         }
@@ -532,19 +594,20 @@ function injectDNA(code, filePath, options = {}) {
     assertSafePrefix(mergedOptions.attributePrefix);
     const absolutePath = getCleanSourcePath(filePath);
     const kind = getFileKind(absolutePath);
-    const sourcePath = getEmittedPath(absolutePath);
+    const root = findProjectRoot();
+    const source = { repo: getRepoName(root), path: getEmittedPath(absolutePath, root) };
 
     // Parsers still see the real extension; only the emitted path is relative.
     if (kind === 'react') {
-        return injectReactDNA(code, sourcePath, mergedOptions, absolutePath);
+        return injectReactDNA(code, source, mergedOptions, absolutePath);
     }
 
     if (kind === 'html') {
-        return injectHtmlDNA(code, sourcePath, mergedOptions);
+        return injectHtmlDNA(code, source, mergedOptions);
     }
 
     if (kind === 'vue') {
-        return injectVueDNA(code, sourcePath, mergedOptions);
+        return injectVueDNA(code, source, mergedOptions);
     }
 
     return code;
