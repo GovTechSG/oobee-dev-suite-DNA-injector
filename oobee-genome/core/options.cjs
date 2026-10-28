@@ -3,6 +3,7 @@ const DEFAULT_OPTIONS = {
     excludePatterns: [/node_modules/, /\.d\.ts$/, /\.spec\.(tsx|jsx)$/, /\.test\.(tsx|jsx)$/],
     blacklist: ['void', 'string', 'number', 'boolean', 'any', 'unknown', 'React'],
     attributePrefix: 'data-oobee',
+    pathRoot: '.',
     enabled: true,
     verbose: false
 };

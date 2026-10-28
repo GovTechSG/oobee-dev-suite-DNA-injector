@@ -43,12 +43,15 @@ function getCleanSourcePath(filePath) {
     return resolve(String(filePath).split('?')[0]);
 }
 
-// The emitted path is project-relative so the OS username / CI layout is
-// never baked into the DOM. Files outside the project collapse to their
+// The emitted path is relative to the configured root so the OS username / CI
+// layout is never baked into the DOM. Files outside that root collapse to their
 // basename so a `..` chain cannot re-leak parent directories. Dev Suite
 // resolves these relative paths against the workspace root.
-function getEmittedPath(absolutePath) {
-    const rel = relative(resolve(process.cwd()), absolutePath);
+function getEmittedPath(absolutePath, pathRoot = '.') {
+    if (typeof pathRoot !== 'string' || !pathRoot.trim()) {
+        throw new TypeError('[oobee-genome] pathRoot must be a non-empty directory path');
+    }
+    const rel = relative(resolve(pathRoot), absolutePath);
     if (!rel) return '.';
     if (rel === '..' || rel.startsWith('..' + sep) || resolve(rel) === rel) {
         const parts = absolutePath.split(/[\\/]/);
@@ -529,7 +532,7 @@ function injectDNA(code, filePath, options = {}) {
     assertSafePrefix(mergedOptions.attributePrefix);
     const absolutePath = getCleanSourcePath(filePath);
     const kind = getFileKind(absolutePath);
-    const sourcePath = getEmittedPath(absolutePath);
+    const sourcePath = getEmittedPath(absolutePath, mergedOptions.pathRoot);
 
     // Parsers still see the real extension; only the emitted path is relative.
     if (kind === 'react') {

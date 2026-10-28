@@ -47,12 +47,44 @@ All adapters stay disabled whenever `CI` or `CONTINUOUS_INTEGRATION` is set to a
 
 Other guarantees:
 
-- `data-oobee-path` is **project-relative** (e.g. `src/App.tsx`), resolved against the directory the build runs in. Your username and absolute directory layout are never embedded. Files outside the project are reduced to their file name.
+- `data-oobee-path` is **project-relative** (e.g. `src/App.tsx`), resolved against `pathRoot` or, by default, the directory the build runs in. Your username and absolute directory layout are never embedded. Files outside that root are reduced to their file name.
 - File names are escaped for each output context (HTML/JSX attributes, JavaScript strings), so a file named e.g. `x" onload="….tsx` cannot inject markup or code.
 - `attributePrefix` must be a plain attribute name (letters, digits, `-`); anything else throws.
 - Line/column lookups are linear in file size, so very large files do not stall the dev server.
 
 
+
+### Using the Oobee Dev Suite VS Code extension
+
+Install the Oobee Dev Suite extension, open your application's folder in VS Code,
+and scan your local development URL.
+
+For example, suppose your folders look like this:
+
+```text
+my-repository/                 ← folder opened in VS Code
+└── frontend-app/
+    ├── next.config.oobee.js
+    └── app/
+        └── page.tsx
+```
+
+In `frontend-app/next.config.oobee.js`, point `pathRoot` one folder up:
+
+```js
+const path = require('path');
+const { withOobeeDNA } = require('@govtechsg/oobee-genome/adapters/next');
+
+module.exports = withOobeeDNA({}, {
+  pathRoot: path.resolve(__dirname, '..') // my-repository/
+});
+```
+
+Genome now injects `data-oobee-path="frontend-app/app/page.tsx"`. Dev Suite joins
+that path with the open `my-repository` folder to find your file.
+
+If you open `frontend-app` itself in VS Code instead, omit `pathRoot`; Genome
+uses the folder where you start the dev server and injects `app/page.tsx`.
 
 ## 3. 🛠️ Choose Your Framework / Build Tool
 

@@ -11,6 +11,9 @@ const DEFAULT_OPTIONS = {
     // Attribute prefix for DNA data
     attributePrefix: 'data-oobee',
 
+    // Base directory for emitted source paths; resolved against the build cwd.
+    pathRoot: '.',
+
     // Enable/disable transformation (useful for dev/prod)
     enabled: true,
 
