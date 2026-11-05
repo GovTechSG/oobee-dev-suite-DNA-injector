@@ -1,9 +1,13 @@
 const DEFAULT_OPTIONS = {
     includePatterns: [/\.(ts|tsx|js|jsx|vue|html)$/],
     excludePatterns: [/node_modules/, /\.d\.ts$/, /\.spec\.(tsx|jsx)$/, /\.test\.(tsx|jsx)$/],
-    blacklist: ['void', 'string', 'number', 'boolean', 'any', 'unknown', 'React'],
+    blacklist: [],
     attributePrefix: 'data-oobee',
     pathRoot: '.',
+
+    // Also tag library-rendered child elements (MUI <input>/<label>, Vuetify internals)
+    // in the browser by copying the nearest tagged ancestor's attributes.
+    inheritChildren: true,
     enabled: true,
     verbose: false
 };

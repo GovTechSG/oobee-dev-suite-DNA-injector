@@ -11,6 +11,10 @@ export interface OobeeOptions {
      * Set to the repository root when the editor opens a repository containing nested apps.
      */
     pathRoot?: string;
+    /** Copy the nearest tagged ancestor's attributes onto elements rendered by component
+     * libraries (marked with `data-oobee-inherited="true"`). Defaults to `true`.
+     */
+    inheritChildren?: boolean;
     /** Enable or disable the transformation entirely. Defaults to `true`. */
     enabled?: boolean;
     /** Print a log line for every transformed file. Defaults to `false`. */

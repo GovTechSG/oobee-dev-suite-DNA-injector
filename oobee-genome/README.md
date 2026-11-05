@@ -47,10 +47,49 @@ All adapters stay disabled whenever `CI` or `CONTINUOUS_INTEGRATION` is set to a
 
 Other guarantees:
 
+- Component library elements (MUI, Vuetify, local components) are tagged too: the attributes are passed as props and land on the component's root DOM node. Wrappers that render no element (`Fragment`, `Suspense`, `StrictMode`, context `Provider`/`Consumer`, Vue `<template>`/`<slot>`/`<transition>`) are always skipped. Use the `blacklist` option to skip additional tag or component names.
 - `data-oobee-path` is **project-relative** (e.g. `src/App.tsx`), resolved against `pathRoot` or, by default, the directory the build runs in. Your username and absolute directory layout are never embedded. Files outside that root are reduced to their file name.
 - File names are escaped for each output context (HTML/JSX attributes, JavaScript strings), so a file named e.g. `x" onload="….tsx` cannot inject markup or code.
 - `attributePrefix` must be a plain attribute name (letters, digits, `-`); anything else throws.
 - Line/column lookups are linear in file size, so very large files do not stall the dev server.
+
+### What gets tagged
+
+Every element that renders into the DOM is tagged, whether it comes from raw HTML, a component library (MUI, Vuetify, ...) or your own components.
+
+| Source | Tagged |
+|---|---|
+| JSX host tags and components (`<div>`, `<Button>`, `<Select.Item>`) | Yes |
+| `React.createElement('div' \| Component, props)` and `document.createElement('div')` | Yes |
+| HTML files and Vue templates (elements and components) | Yes |
+| React `Fragment` / `<>`, `Suspense`, `StrictMode`, `Profiler`, `Provider`, `Consumer` | No: they render no element |
+| Vue `<template>`, `<slot>`, `<teleport>`, `<keep-alive>`, `<suspense>`, `<transition>`, `<transition-group>` | No: they render no element |
+
+The attributes are passed to a component as props, so they land on the component's **root** DOM node. Use `blacklist: ['Name']` to skip extra tag or component names.
+
+### Library-rendered child elements
+
+Component libraries create extra DOM that never appears in your source (MUI's `<input>`, `<label>`, ripple `<span>`; Vuetify internals). A build step cannot tag those, so `oobee-genome` adds a small browser step:
+
+- Each untagged element copies `data-oobee-path`, `-line` and `-column` from its **nearest tagged ancestor**, and gets `data-oobee-inherited="true"`. It points at the component you wrote, since that is the closest source location.
+- The transform appends one import line to the end of each transformed module (line numbers and `'use client'` are unaffected). It is added only in development, like the rest of the injection.
+- Elements added later, such as dialogs, are tagged as they appear.
+- The first pass waits for the page to settle (about 0.5 s of no DOM changes, 8 s at most) so server-rendered frameworks such as Next.js finish hydrating first. **Scan after the page has settled.**
+- Elements with no tagged ancestor, for example a portal attached to `<body>`, stay untagged.
+- Turn it off with `inheritChildren: false`.
+
+### Options
+
+| Option | Default | Description |
+|---|---|---|
+| `includePatterns` | `[/\.(ts\|tsx\|js\|jsx\|vue\|html)$/]` | Files to transform |
+| `excludePatterns` | `node_modules`, `*.d.ts`, `*.spec/test.(tsx\|jsx)` | Files to skip |
+| `blacklist` | `[]` | Extra tag or component names to skip. Non-DOM wrappers (`Fragment`, ...) are always skipped |
+| `attributePrefix` | `'data-oobee'` | Attribute name prefix |
+| `pathRoot` | `'.'` | Directory emitted paths are relative to |
+| `inheritChildren` | `true` | Tag library-rendered children in the browser |
+| `enabled` | `true` | Turn the injection on or off |
+| `verbose` | `false` | Log each transformed file |
 
 
 
@@ -211,6 +250,9 @@ npm run dev:oobee
 
 <span style="color: red; font-size: 1.1em;">**Important:** Never commit `next.config.js` changes that include oobee. Your production builds must always use the original config.</span>
 
+> [!IMPORTANT]
+> The Next.js adapter hooks webpack. Next.js 16 uses Turbopack by default, which ignores it, so run `next dev --webpack`.
+
 **Setup in 3 steps:**
 
 **Step 1: Install**
@@ -245,7 +287,7 @@ Add this script to your `package.json`:
 ```json
 {
   "scripts": {
-    "dev:oobee": "cp next.config.oobee.js next.config.js && next dev"
+    "dev:oobee": "cp next.config.oobee.js next.config.js && next dev --webpack"
   }
 }
 ```
@@ -488,12 +530,23 @@ Before starting a scan, confirm that oobee-genome is actually injecting source-l
 
 - **Solution:** Use a plain attribute name such as `data-oobee` or `data-myapp`, with no quotes, spaces or punctuation other than `-`
 
+**Problem:** Next.js shows no `data-oobee-*` attributes
+
+- **Solution:** Run `next dev --webpack`. Next.js 16 defaults to Turbopack, which does not run the webpack loader
+
+**Problem:** A MUI / Vuetify component's inner `<input>` or `<label>` has no attributes
+
+- **Solution:** Wait about a second after load, since the browser step runs once the page settles. Check `inheritChildren` has not been set to `false`. Inner elements get the attributes of the component you wrote and are marked `data-oobee-inherited="true"`
+
 ## 6. 🧪 Development
 
 ```bash
 npm install
-npm test   # node:test suites in test/: injection, escaping, paths, performance, dev-only gates
+npm test               # node:test suites in test/: injection, escaping, paths, performance, dev-only gates, adapters, browser runtime
+npm run test:coverage  # same, and fails below 99% lines / 90% branches / 95% functions
 ```
+
+The browser step is tested in jsdom, so `npm install` also pulls in `jsdom` as a dev dependency.
 
 **Problem:** I accidentally built with the oobee config
 
