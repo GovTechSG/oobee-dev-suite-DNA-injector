@@ -1,6 +1,7 @@
 const { injectDNA, shouldTransform } = require('../core/transformer.cjs');
 const { mergeOptions } = require('../core/options.cjs');
 const { isDevelopmentBuild } = require('../core/environment.cjs');
+const { log, getRelativePath } = require('../core/utils.cjs');
 
 module.exports = function oobeeWebpackLoader(source) {
     const loaderOptions = this.getOptions ? this.getOptions() : {};
@@ -12,6 +13,8 @@ module.exports = function oobeeWebpackLoader(source) {
 
     const filePath = this.resourcePath;
     if (!shouldTransform(filePath, mergedOptions)) return source;
+
+    log(`Transforming (webpack): ${getRelativePath(filePath)}`, mergedOptions.verbose);
 
     try {
         const transformed = injectDNA(source, filePath, mergedOptions);
