@@ -36,10 +36,6 @@ function positionFromIndex(nlOffsets, index) {
     return { line: lo + 1, column: index - lastNlBefore };
 }
 
-function getRelativePath(filePath, rootPath = process.cwd()) {
-    return relative(rootPath, filePath);
-}
-
 // Bundlers can append query strings to module IDs, e.g. App.tsx?t=123.
 // Strip those before resolving so parser dispatch sees the real extension.
 function getCleanSourcePath(filePath) {
@@ -175,20 +171,28 @@ function getJsxName(node) {
     return null;
 }
 
-// Component-like JSX is not guaranteed to forward arbitrary props to a DOM
-// element. Treat PascalCase and member names as components and skip them.
-function isComponentJsxName(nameNode, tagName) {
-    if (!tagName) return true;
-    if (nameNode.type === 'JSXMemberExpression') return true;
-    return /^[A-Z]/.test(tagName);
+// Wrappers that never render a DOM element, or that React/Vue reject extra props
+// on (React warns when Fragment gets anything but key/children). Everything else,
+// including PascalCase and member components such as MUI's <Button> or
+// <Select.Item>, forwards unknown props to its root DOM node, so it is tagged.
+const NON_DOM_REACT = new Set(['Fragment', 'Suspense', 'StrictMode', 'Profiler', 'Provider', 'Consumer']);
+const NON_DOM_VUE = new Set(['template', 'slot', 'teleport', 'keepalive', 'suspense', 'transition', 'transitiongroup']);
+
+function isNonDomReactName(tagName) {
+    const last = tagName.split(/[.:]/).pop();
+    return NON_DOM_REACT.has(last);
 }
 
-// Gatekeeper for JSX injection. Only host-like tags should receive attributes:
-// lowercase HTML/SVG/custom elements pass; components and blacklisted names do not.
+function isNonDomVueName(tag) {
+    return NON_DOM_VUE.has(String(tag).replace(/-/g, '').toLowerCase());
+}
+
+// Gatekeeper for JSX injection. Any tag that renders into the DOM is tagged;
+// user-blacklisted names and non-DOM wrappers are not.
 function shouldInjectJsxElement(openingElement, tagName, options) {
     if (!tagName) return false;
     if (options.blacklist.includes(tagName)) return false;
-    if (isComponentJsxName(openingElement.name, tagName)) return false;
+    if (isNonDomReactName(tagName)) return false;
     return true;
 }
 
@@ -289,6 +293,20 @@ function getStringLiteralValue(node) {
     return null;
 }
 
+// First argument of React.createElement: a string tag ('div') or a component
+// reference (Button, Select.Item). Computed or call expressions are ignored.
+function getCreateElementTypeName(node) {
+    if (!node) return null;
+    const literal = getStringLiteralValue(node);
+    if (literal) return literal;
+    if (node.type === 'Identifier') return node.name;
+    if (node.type === 'MemberExpression' && !node.computed && node.property.type === 'Identifier') {
+        const object = getCreateElementTypeName(node.object);
+        return object ? object + '.' + node.property.name : null;
+    }
+    return null;
+}
+
 // React.createElement's second argument is the props object. When it is null or
 // undefined, React treats that as "no props", so Genome can replace it safely:
 // React.createElement('div', null) -> React.createElement('div', { data... }).
@@ -332,7 +350,17 @@ function getSetAttributeStatements(lineIndex, offset, sourcePath, prefix) {
     ].join(' ');
 }
 
-// React-family transformer for Next/Vite/React source files.
+// Browser runtime that copies attributes onto library-rendered children (see
+// core/runtime.js). Appended at the END of a module: ES imports are hoisted, so
+// this keeps every original line/column and leaves leading directives such as
+// 'use client' as the first statement.
+const RUNTIME_SPECIFIER = '@govtechsg/oobee-genome/core/runtime';
+
+function getRuntimeImport(prefix) {
+    return `\nimport { oobeeInherit as __oobeeInherit } from ${JSON.stringify(RUNTIME_SPECIFIER)}; __oobeeInherit(${JSON.stringify(prefix)});\n`;
+}
+
+// React-family transformer for Next/Vue/React source files.
 // This pass is intentionally AST-based: JSX tags, React.createElement calls,
 // and document.createElement calls are different syntax nodes, so we can
 // inject only into real host elements and avoid TypeScript generics or plain
@@ -369,8 +397,8 @@ function injectReactDNA(code, sourcePath, options, parsePath = sourcePath) {
         //   React.createElement(Button, null) -> skip because Button is a component
         // "attrs" is the generated data-oobee properties string.
         if (isReactCreateElementCall(node)) {
-            const tagName = getStringLiteralValue(node.arguments[0]);
-            if (!tagName || options.blacklist.includes(tagName)) return;
+            const tagName = getCreateElementTypeName(node.arguments[0]);
+            if (!tagName || options.blacklist.includes(tagName) || isNonDomReactName(tagName)) return;
 
             const props = node.arguments[1];
             const attrs = getObjectAttributes(lineIndex, node.start, sourcePath, prefix);
@@ -431,6 +459,10 @@ function injectReactDNA(code, sourcePath, options, parsePath = sourcePath) {
         }
     }
 
+    if (options.inheritChildren !== false && ast.program.sourceType === 'module') {
+        magic.append(getRuntimeImport(prefix));
+    }
+
     return magic.toString();
 }
 
@@ -486,9 +518,9 @@ function injectVueDNA(code, sourcePath, options) {
     const edits = [];
 
     function visit(node) {
-        if (node.type === 1 && node.tagType === ElementTypes.ELEMENT) {
+        if (node.type === 1 && (node.tagType === ElementTypes.ELEMENT || node.tagType === ElementTypes.COMPONENT)) {
             const attrs = (node.props || []).map((prop) => ({ name: prop.name }));
-            if (!options.blacklist.includes(node.tag) && !hasAttributeName(attrs, prefix)) {
+            if (!options.blacklist.includes(node.tag) && !isNonDomVueName(node.tag) && !hasAttributeName(attrs, prefix)) {
                 const absoluteStart = baseOffset + node.loc.start.offset;
                 edits.push({
                     start: absoluteStart + 1 + node.tag.length,
@@ -510,6 +542,17 @@ function injectVueDNA(code, sourcePath, options) {
     for (const edit of edits.sort((a, b) => b.start - a.start)) {
         magic.appendLeft(edit.start, edit.content);
     }
+
+    if (options.inheritChildren !== false) {
+        const script = parsed.descriptor.script || parsed.descriptor.scriptSetup;
+        const lang = script && script.lang;
+        const tsOrJs = !lang || lang === 'js' || lang === 'ts';
+        if (script && tsOrJs) {
+            magic.appendLeft(script.loc.end.offset, getRuntimeImport(prefix));
+        } else if (!script) {
+            magic.append(`\n<script>${getRuntimeImport(prefix)}</script>\n`);
+        }
+    }
     return magic.toString();
 }
 
@@ -517,10 +560,11 @@ function injectVueDNA(code, sourcePath, options) {
 // whether a file is eligible, getFileKind chooses the parser-specific path.
 function injectDNA(code, filePath, options = {}) {
     const mergedOptions = {
-        blacklist: ['void', 'string', 'number', 'boolean', 'any', 'unknown', 'React'],
+        blacklist: [],
         includePatterns: [/\.(tsx|jsx|js|ts|vue|html)$/],
         excludePatterns: [/node_modules/],
         attributePrefix: 'data-oobee',
+        inheritChildren: true,
         ...options
     };
 
@@ -568,7 +612,6 @@ function shouldTransform(filePath, options = {}) {
 
 export {
     getPosition,
-    getRelativePath,
     injectDNA,
     shouldTransform
 };

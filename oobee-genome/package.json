@@ -33,10 +33,11 @@
     "directory": "oobee-genome"
   },
   "scripts": {
-    "test": "node --test test/*.test.mjs",
+    "test": "node --test --test-timeout=60000 test/*.test.mjs",
     "pack:check": "npm pack --dry-run",
     "pack:tarball": "npm pack",
-    "publish:s3": "node s3-publish.js"
+    "publish:s3": "node s3-publish.js",
+    "test:coverage": "node --test --test-timeout=60000 --experimental-test-coverage --test-coverage-lines=99 --test-coverage-branches=90 --test-coverage-functions=95 --test-coverage-exclude=\"test/**\" test/*.test.mjs"
   },
   "files": [
     "index.js",
@@ -100,6 +101,11 @@
       "types": "./core/utils.d.ts",
       "import": "./core/utils.js",
       "require": "./core/utils.cjs"
+    },
+    "./core/runtime": {
+      "types": "./core/runtime.d.ts",
+      "import": "./core/runtime.js",
+      "require": "./core/runtime.cjs"
     }
   },
   "dependencies": {
@@ -108,5 +114,8 @@
     "@vue/compiler-sfc": "^3.5.43",
     "magic-string": "^0.30.19",
     "parse5": "^6.0.1"
+  },
+  "devDependencies": {
+    "jsdom": "^30.1.3"
   }
 }
