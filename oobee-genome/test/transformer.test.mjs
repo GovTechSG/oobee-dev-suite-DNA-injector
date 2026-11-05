@@ -45,14 +45,37 @@ const htmlAttrs = (html) => {
 };
 
 describe('injection output', () => {
-    test('JSX host elements get path/line/column; components are skipped', () => {
+    test('JSX host elements and components get path/line/column', () => {
         const src = 'const A = () => (\n  <div>\n    <Button />\n    <span>hi</span>\n  </div>\n);';
         const out = esm.injectDNA(src, at('src/App.tsx'));
         const attrs = jsxAttrs(out);
         assert.deepEqual(attrs.map((a) => a.tag), ['div', 'Button', 'span']);
         assert.deepEqual(attrs[0], { tag: 'div', 'data-oobee-path': 'src/App.tsx', 'data-oobee-line': '2', 'data-oobee-column': '3' });
-        assert.equal(attrs[1]['data-oobee-path'], undefined);
+        assert.deepEqual(attrs[1], { tag: 'Button', 'data-oobee-path': 'src/App.tsx', 'data-oobee-line': '3', 'data-oobee-column': '5' });
         assert.equal(attrs[2]['data-oobee-line'], '4');
+    });
+
+    test('MUI-style components and member components are tagged', () => {
+        const src = 'const A = () => (<Box><Button variant="contained">Go</Button><TextField label="n" /><Select.Item value="1" /></Box>);';
+        const out = esm.injectDNA(src, at('src/Mui.tsx'));
+        const attrs = jsxAttrs(out);
+        assert.equal(attrs.filter((a) => a['data-oobee-path']).length, 4);
+        assert.match(out, /<Button data-oobee-path="src\/Mui.tsx"[^>]* variant="contained">/);
+        assert.match(out, /<Select\.Item data-oobee-path/);
+    });
+
+    test('non-DOM wrappers (Fragment, Suspense, StrictMode, Provider) and <> are untouched', () => {
+        const src = 'const A = () => (<><React.Fragment><Suspense fallback={null}><StrictMode><Ctx.Provider value={1}><i /></Ctx.Provider></StrictMode></Suspense></React.Fragment></>);';
+        const out = esm.injectDNA(src, at('src/W.tsx'));
+        assert.equal((out.match(/data-oobee-path/g) || []).length, 1);
+        assert.match(out, /<i data-oobee-path/);
+        parseJsx(out, 'W.tsx');
+    });
+
+    test('default blacklist is empty; a custom blacklist still skips names', () => {
+        assert.deepEqual(require('../core/options.cjs').DEFAULT_OPTIONS.blacklist, []);
+        const out = esm.injectDNA('const a = <div><Foo /></div>;', at('src/b.jsx'), { blacklist: ['Foo'] });
+        assert.equal((out.match(/data-oobee-path/g) || []).length, 1);
     });
 
     test('TypeScript generics are not treated as tags', () => {
@@ -72,24 +95,37 @@ describe('injection output', () => {
         assert.equal(esm.injectDNA(once, at('src/a.jsx')), once);
     });
 
-    test('React.createElement: no props, null props, object props, component skipped', () => {
+    test('React.createElement: no props, null props, object props, components tagged, Fragment skipped', () => {
         const src = [
             "React.createElement('a');",
             "React.createElement('b', null);",
             "React.createElement('c', { id: 'x' });",
             'React.createElement(Button, null);',
+            'React.createElement(React.Fragment, null);',
         ].join('\n');
         const out = esm.injectDNA(src, at('src/ce.js'));
-        assert.equal((out.match(/'data-oobee-path': "src\/ce.js"/g) || []).length, 3);
-        assert.match(out, /React\.createElement\(Button, null\)/);
-        new Function('React', 'Button', out)({ createElement: () => null }, null);
+        assert.equal((out.match(/'data-oobee-path': "src\/ce.js"/g) || []).length, 4);
+        assert.match(out, /React\.createElement\(Button, \{ 'data-oobee-path'/);
+        assert.match(out, /React\.createElement\(React\.Fragment, null\)/);
+        new Function('React', 'Button', out.replace(/\nimport \{ oobeeInherit[^\n]*\n/, ''))({ createElement: () => null, Fragment: 1 }, null);
+    });
+
+    test('runtime import is appended after the code, keeping positions and directives', () => {
+        const src = "'use client';\nexport default function A() { return <div />; }";
+        const out = esm.injectDNA(src, at('src/R.jsx'));
+        assert.ok(out.startsWith("'use client';"));
+        assert.match(out, /import \{ oobeeInherit as __oobeeInherit \} from "@govtechsg\/oobee-genome\/core\/runtime"; __oobeeInherit\("data-oobee"\);/);
+        assert.equal(jsxAttrs(out)[0]['data-oobee-line'], '2');
+        parseJsx(out, 'R.jsx');
+        assert.equal(esm.injectDNA(src, at('src/R.jsx'), { inheritChildren: false }).includes('oobeeInherit'), false);
+        assert.equal(cjs.injectDNA(src, at('src/R.jsx')), out);
     });
 
     test('document.createElement still returns the element and sets attributes', () => {
         const out = esm.injectDNA("const el = document.createElement('button');\nexport { el };", at('src/dom.js'));
         const set = {};
         const fakeEl = { setAttribute: (k, v) => (set[k] = v) };
-        const body = out.replace('export { el };', 'return el;');
+        const body = out.replace('export { el };', 'return el;').replace(/\nimport \{ oobeeInherit[^\n]*\n/, '');
         const el = new Function('document', body)({ createElement: () => fakeEl });
         assert.equal(el, fakeEl);
         assert.deepEqual(set, { 'data-oobee-path': 'src/dom.js', 'data-oobee-line': '1', 'data-oobee-column': '12' });
@@ -104,11 +140,14 @@ describe('injection output', () => {
         assert.deepEqual(attrs[1], { 'data-oobee-path': 'public/index.html', 'data-oobee-line': '3', 'data-oobee-column': '3' });
     });
 
-    test('Vue: only template elements are tagged; script and components left alone', () => {
-        const src = '<template>\n  <div><MyComp /><span>x</span></div>\n</template>\n<script>const s = "<div>";</script>';
+    test('Vue: template elements and components are tagged; script and non-DOM wrappers left alone', () => {
+        const src = '<template>\n  <div><MyComp /><v-btn>x</v-btn><transition><span>x</span></transition><slot /></div>\n</template>\n<script>const s = "<div>";</script>';
         const out = esm.injectDNA(src, at('src/C.vue'));
-        assert.equal((out.match(/data-oobee-path="src\/C.vue"/g) || []).length, 2);
-        assert.match(out, /<MyComp \/>/);
+        assert.equal((out.match(/data-oobee-path="src\/C.vue"/g) || []).length, 4);
+        assert.match(out, /<MyComp data-oobee-path/);
+        assert.match(out, /<v-btn data-oobee-path/);
+        assert.match(out, /<transition>/);
+        assert.match(out, /<slot \/>/);
         assert.match(out, /const s = "<div>";/);
     });
 
