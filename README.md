@@ -40,6 +40,12 @@ Each folder in [`examples/`](examples/) is a standalone app with oobee-genome al
 | [`vue-webpack`](examples/vue-webpack/) | Vue 3 + Webpack |
 | [`next-js`](examples/next-js/) | Next.js (App Router) |
 | [`vanilla-html-js`](examples/vanilla-html-js/) | Plain HTML/JS, no build tool |
+| [`vite-react-mui`](examples/vite-react-mui/) | React + Vite + Material UI |
+| [`react-webpack-mui`](examples/react-webpack-mui/) | React + Webpack + Material UI |
+| [`next-js-mui`](examples/next-js-mui/) | Next.js (App Router, `--webpack`) + Material UI |
+| [`vue-vite-vuetify`](examples/vue-vite-vuetify/) | Vue 3 + Vite + Vuetify |
+
+The four component-library examples install `oobee-genome` from the local checkout (`file:../../oobee-genome`), so they exercise the current source.
 
 To try one:
 
