@@ -175,6 +175,10 @@ function getJsxName(node) {
 const NON_DOM_REACT = new Set(['Fragment', 'Suspense', 'StrictMode', 'Profiler', 'Provider', 'Consumer']);
 const NON_DOM_VUE = new Set(['template', 'slot', 'teleport', 'keepalive', 'suspense', 'transition', 'transitiongroup']);
 
+// Plain-HTML elements that never render (document metadata, scripts, styles), so
+// tagging them only adds noise, e.g. <script data-oobee-path=...> in the page.
+const NON_RENDERED_HTML = new Set(['html', 'head', 'base', 'link', 'meta', 'title', 'script', 'style', 'noscript', 'template']);
+
 function isNonDomReactName(tagName) {
     const last = tagName.split(/[.:]/).pop();
     return NON_DOM_REACT.has(last);
@@ -476,7 +480,7 @@ function injectHtmlDNA(code, sourcePath, options) {
             const location = node.sourceCodeLocation.startTag;
             const attrs = Object.keys(location.attrs || {}).map((name) => ({ name }));
 
-            if (!options.blacklist.includes(node.tagName) && !hasAttributeName(attrs, prefix)) {
+            if (!NON_RENDERED_HTML.has(node.tagName) && !options.blacklist.includes(node.tagName) && !hasAttributeName(attrs, prefix)) {
                 edits.push({
                     start: location.startOffset + 1 + node.tagName.length,
                     content: getJsxAttributes(lineIndex, location.startOffset, sourcePath, prefix)

@@ -46,6 +46,18 @@ for (const esm of [true, false]) {
             assert.match(r.code, /data-oobee-path="src\/A.jsx"/);
             assert.equal(r.map, null);
         });
+        test('index.html: tags elements and injects the runtime so runtime-built DOM inherits tags', async () => {
+            const m = await load.vite(esm);
+            const html = '<html><body><div id="app"></div><script type="module" src="/main.js"></script></body></html>';
+            const r = withEnv(DEV, () => m.default().transformIndexHtml.handler(html, { filename: at('index.html') }));
+            assert.match(r.html, /<div data-oobee-path="index.html"/);
+            assert.doesNotMatch(r.html, /<script data-oobee/);
+            assert.equal(r.tags.length, 1);
+            assert.match(r.tags[0].children, /oobeeInherit/);
+            assert.equal(r.tags[0].injectTo, 'body');
+            const off = withEnv(DEV, () => m.default({ inheritChildren: false }).transformIndexHtml.handler(html, { filename: at('index.html') }));
+            assert.equal(typeof off, 'string');
+        });
         test('skips when disabled, unmatched, or non-dev', async () => {
             const m = await load.vite(esm);
             assert.equal(withEnv(DEV, () => m.default({ enabled: false }).transform(SRC, at('src/A.jsx'))), null);

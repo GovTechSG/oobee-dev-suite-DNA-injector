@@ -140,6 +140,17 @@ describe('injection output', () => {
         assert.deepEqual(attrs[1], { 'data-oobee-path': 'public/index.html', 'data-oobee-line': '3', 'data-oobee-column': '3' });
     });
 
+    test('HTML: non-rendered elements (script, style, meta, link...) are not tagged', () => {
+        const src = '<!doctype html><html><head><meta charset="utf-8"><title>t</title><link rel="icon" href="/f.svg"><style>a{}</style></head><body><div id="app"></div><script type="module" src="/main.js"></script></body></html>';
+        for (const mod of [esm, cjs]) {
+            const out = mod.injectDNA(src, at('index.html'));
+            assert.match(out, /<div data-oobee-path="index.html"[^>]*id="app">/);
+            assert.match(out, /<script type="module" src="\/main.js"><\/script>/);
+            assert.match(out, /<meta charset="utf-8">/);
+            assert.match(out, /<link rel="icon"/);
+        }
+    });
+
     test('Vue: template elements and components are tagged; script and non-DOM wrappers left alone', () => {
         const src = '<template>\n  <div><MyComp /><v-btn>x</v-btn><transition><span>x</span></transition><slot /></div>\n</template>\n<script>const s = "<div>";</script>';
         const out = esm.injectDNA(src, at('src/C.vue'));

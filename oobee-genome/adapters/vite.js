@@ -27,6 +27,37 @@ function oobeeVitePlugin(options = {}) {
                 console.error(`[oobee-genome] Error transforming ${id}:`, error);
                 return null;
             }
+        },
+        // Vite serves the entry index.html through this hook, not `transform`.
+        transformIndexHtml: {
+            order: 'pre',
+            handler(html, ctx) {
+                if (!isDevelopmentBuild()) return html;
+                if (!mergedOptions.enabled) return html;
+                const id = (ctx && (ctx.filename || ctx.path)) || 'index.html';
+                if (!shouldTransform(id, mergedOptions)) return html;
+
+                log(`Transforming: ${id}`, mergedOptions.verbose);
+
+                try {
+                    const transformed = injectDNA(html, id, mergedOptions);
+                    if (mergedOptions.inheritChildren === false) return transformed;
+                    // Elements created at runtime (innerHTML, library output) never pass through the
+                    // transform, so load the runtime from the entry page; it is idempotent.
+                    return {
+                        html: transformed,
+                        tags: [{
+                            tag: 'script',
+                            attrs: { type: 'module' },
+                            children: `import { oobeeInherit } from '@govtechsg/oobee-genome/core/runtime'; oobeeInherit(${JSON.stringify(mergedOptions.attributePrefix)});`,
+                            injectTo: 'body'
+                        }]
+                    };;
+                } catch (error) {
+                    console.error(`[oobee-genome] Error transforming ${id}:`, error);
+                    return html;
+                }
+            }
         }
     };
 }
