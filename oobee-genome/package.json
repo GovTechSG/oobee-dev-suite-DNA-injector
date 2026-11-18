@@ -45,6 +45,7 @@
     "index.d.ts",
     "core/",
     "adapters/",
+    "bin/",
     "README.md",
     "*.cjs"
   ],
@@ -117,5 +118,8 @@
   },
   "devDependencies": {
     "jsdom": "^30.1.3"
+  },
+  "bin": {
+    "oobee-genome": "bin/oobee-genome.js"
   }
 }
