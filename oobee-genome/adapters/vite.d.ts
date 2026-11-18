@@ -6,6 +6,10 @@ export interface OobeeVitePlugin {
     apply: 'serve';
     enforce: 'pre';
     transform(code: string, id: string): { code: string; map: null } | null;
+    transformIndexHtml: {
+        order: 'pre';
+        handler(html: string, ctx?: { filename?: string; path?: string }): string;
+    };
 }
 
 /**
