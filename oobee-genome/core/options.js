@@ -5,14 +5,18 @@ const DEFAULT_OPTIONS = {
     // File patterns to exclude from transformation
     excludePatterns: [/node_modules/, /\.d\.ts$/, /\.spec\.(tsx|jsx)$/, /\.test\.(tsx|jsx)$/],
 
-    // Component/tag names to blacklist from transformation
-    blacklist: ['void', 'string', 'number', 'boolean', 'any', 'unknown', 'React'],
+    // Extra tag/component names to skip (non-DOM wrappers such as Fragment are always skipped)
+    blacklist: [],
 
     // Attribute prefix for DNA data
     attributePrefix: 'data-oobee',
 
     // Base directory for emitted source paths; resolved against the build cwd.
     pathRoot: '.',
+
+    // Also tag library-rendered child elements (MUI <input>/<label>, Vuetify internals)
+    // in the browser by copying the nearest tagged ancestor's attributes.
+    inheritChildren: true,
 
     // Enable/disable transformation (useful for dev/prod)
     enabled: true,
